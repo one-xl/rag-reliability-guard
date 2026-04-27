@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
 
+from app.bm25 import search_documents_bm25
 from app.evaluator import evaluate_retrieval
 from app.pdf_loader import extract_text_from_pdf
 from app.search import search_documents
@@ -47,13 +48,26 @@ def dashboard():
 def api_search(
     q: str | None = Query(None),
     top_k: int = Query(5, ge=1, le=20),
+    method: str = Query("keyword", description="keyword=子串计分, bm25=Okapi BM25（分块为文档）"),
 ):
-    """按关键词在已入库文档分块正文中检索（大小写不敏感，确定性排序）。"""
+    """
+    在已入库文档分块上检索。method=keyword 为与原先一致的子串计分；method=bm25 为经典 BM25。
+    """
     if q is None or not q.strip():
         raise HTTPException(status_code=400, detail="查询 q 不能为空")
+    if method not in ("keyword", "bm25"):
+        raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
     stripped = q.strip()
-    results = search_documents(DOCUMENTS_DIR, stripped, top_k)
-    return {"query": stripped, "top_k": top_k, "results": results}
+    if method == "bm25":
+        results = search_documents_bm25(DOCUMENTS_DIR, stripped, top_k)
+    else:
+        results = search_documents(DOCUMENTS_DIR, stripped, top_k)
+    return {
+        "query": stripped,
+        "top_k": top_k,
+        "method": method,
+        "results": results,
+    }
 
 
 @app.post("/api/evaluate/retrieval")

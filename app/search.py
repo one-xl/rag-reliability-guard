@@ -24,22 +24,19 @@ def _safe_preview(text: str, max_chars: int = TEXT_PREVIEW_MAX_CHARS) -> str:
     return text[:max_chars]
 
 
-def search_documents(documents_dir: Path, query: str, top_k: int) -> list[dict]:
+def iter_indexable_chunks(
+    documents_dir: Path,
+) -> list[tuple[str, str, int, str]]:
     """
-    Scan ``documents_dir`` for ``*.json`` metadata files and rank chunks by keyword score.
+    Load valid chunks from ``documents_dir`` JSON metadata.
 
-    Query is split on whitespace; each token is matched as a case-insensitive substring.
-    Results are sorted by descending score, then ``document_id``, then ``chunk_index``.
+    Returns tuples ``(document_id, original_filename, chunk_index, text)`` in
+    filename order, then chunk list order, matching scan semantics used for search.
     """
-    q = query.strip()
-    tokens = [t for t in q.split() if t]
-    if not tokens:
-        return []
-
     if not documents_dir.is_dir():
         return []
 
-    matches: list[tuple[int, str, str, int, str]] = []
+    rows: list[tuple[str, str, int, str]] = []
     for path in sorted(documents_dir.glob("*.json")):
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -66,10 +63,28 @@ def search_documents(documents_dir: Path, query: str, top_k: int) -> list[dict]:
             idx = ch.get("index")
             if not isinstance(text, str) or not isinstance(idx, int):
                 continue
-            score = _chunk_score(text, tokens)
-            if score <= 0:
-                continue
-            matches.append((score, doc_id, original_filename, idx, text))
+            rows.append((doc_id, original_filename, idx, text))
+    return rows
+
+
+def search_documents(documents_dir: Path, query: str, top_k: int) -> list[dict]:
+    """
+    Scan ``documents_dir`` for ``*.json`` metadata files and rank chunks by keyword score.
+
+    Query is split on whitespace; each token is matched as a case-insensitive substring.
+    Results are sorted by descending score, then ``document_id``, then ``chunk_index``.
+    """
+    q = query.strip()
+    tokens = [t for t in q.split() if t]
+    if not tokens:
+        return []
+
+    matches: list[tuple[int, str, str, int, str]] = []
+    for doc_id, original_filename, idx, text in iter_indexable_chunks(documents_dir):
+        score = _chunk_score(text, tokens)
+        if score <= 0:
+            continue
+        matches.append((score, doc_id, original_filename, idx, text))
 
     matches.sort(key=lambda row: (-row[0], row[1], row[3]))
 

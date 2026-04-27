@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Retrieval Dashboard</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", Arial, "Microsoft YaHei", sans-serif;
+      background: #f6f7f9;
+      color: #20242a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header {
+      border-bottom: 1px solid #d9dee7;
+      background: #ffffff;
+      padding: 18px 28px;
+    }
+    h1 { margin: 0; font-size: 22px; font-weight: 650; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px;
+    }
+    section {
+      background: #ffffff;
+      border: 1px solid #d9dee7;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    h2 { margin: 0 0 12px; font-size: 16px; }
+    label { display: block; margin: 10px 0 6px; font-size: 13px; color: #4b5563; }
+    input, textarea, button {
+      width: 100%;
+      font: inherit;
+      border-radius: 6px;
+    }
+    input, textarea {
+      border: 1px solid #c9d1dc;
+      padding: 9px 10px;
+      background: #ffffff;
+    }
+    textarea { min-height: 180px; resize: vertical; }
+    button {
+      border: 0;
+      background: #1f6feb;
+      color: white;
+      padding: 9px 12px;
+      margin-top: 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.secondary { background: #596579; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .output {
+      min-height: 92px;
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #f2f4f8;
+      white-space: pre-wrap;
+      overflow: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    .list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .item {
+      border: 1px solid #e0e5ec;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fbfcfe;
+    }
+    .muted { color: #647084; font-size: 13px; }
+    @media (max-width: 880px) {
+      main, .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>RAG Retrieval Dashboard</h1>
+  </header>
+  <main>
+    <section aria-labelledby="upload-title">
+      <h2 id="upload-title">上传 PDF</h2>
+      <form id="upload-form">
+        <label for="pdf-file">PDF 文件</label>
+        <input id="pdf-file" name="file" type="file" accept="application/pdf,.pdf" required>
+        <button type="submit">上传并入库</button>
+      </form>
+      <button id="refresh-documents" class="secondary" type="button">刷新文档列表</button>
+      <div id="upload-output" class="output"></div>
+      <div id="documents-list" class="list"></div>
+    </section>
+
+    <div class="grid">
+      <section aria-labelledby="search-title">
+        <h2 id="search-title">检索 Chunks</h2>
+        <label for="search-query">查询</label>
+        <input id="search-query" type="search" placeholder="输入关键词">
+        <label for="top-k">Top K</label>
+        <input id="top-k" type="number" min="1" max="20" value="5">
+        <button id="run-search" type="button">检索</button>
+        <div id="search-output" class="output"></div>
+      </section>
+
+      <section aria-labelledby="eval-title">
+        <h2 id="eval-title">检索评测</h2>
+        <label for="eval-cases">测试集 JSON</label>
+        <textarea id="eval-cases">{
+  "top_k": 5,
+  "cases": [
+    {
+      "question": "retrieval",
+      "answerable": false
+    }
+  ]
+}</textarea>
+        <button id="run-eval" type="button">运行评测</button>
+        <div class="muted">字段：question, answerable, expected_document_id, expected_chunk_index</div>
+        <div id="eval-output" class="output"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const pretty = (value) => JSON.stringify(value, null, 2);
+
+    async function requestJson(url, options) {
+      const response = await fetch(url, options);
+      const text = await response.text();
+      let body;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = text;
+      }
+      if (!response.ok) {
+        throw new Error(typeof body === "object" ? pretty(body) : body);
+      }
+      return body;
+    }
+
+    async function loadDocuments() {
+      const list = document.getElementById("documents-list");
+      const docs = await requestJson("/api/documents");
+      if (!docs.length) {
+        list.innerHTML = "<div class='muted'>暂无文档</div>";
+        return;
+      }
+      list.innerHTML = docs.map((doc) => `
+        <div class="item">
+          <strong>${doc.original_filename || doc.id}</strong>
+          <div class="muted">${doc.chunk_count || 0} chunks · ${doc.char_count || 0} chars</div>
+          <div class="muted">${doc.id}</div>
+        </div>
+      `).join("");
+    }
+
+    document.getElementById("upload-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const output = document.getElementById("upload-output");
+      const file = document.getElementById("pdf-file").files[0];
+      const data = new FormData();
+      data.append("file", file);
+      output.textContent = "Uploading...";
+      try {
+        const body = await requestJson("/api/documents/upload", { method: "POST", body: data });
+        output.textContent = pretty(body);
+        await loadDocuments();
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    document.getElementById("refresh-documents").addEventListener("click", loadDocuments);
+
+    document.getElementById("run-search").addEventListener("click", async () => {
+      const q = document.getElementById("search-query").value;
+      const topK = document.getElementById("top-k").value || "5";
+      const output = document.getElementById("search-output");
+      output.textContent = "Searching...";
+      try {
+        output.textContent = pretty(await requestJson(`/api/search?q=${encodeURIComponent(q)}&top_k=${encodeURIComponent(topK)}`));
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    document.getElementById("run-eval").addEventListener("click", async () => {
+      const output = document.getElementById("eval-output");
+      output.textContent = "Evaluating...";
+      try {
+        const payload = JSON.parse(document.getElementById("eval-cases").value);
+        output.textContent = pretty(await requestJson("/api/evaluate/retrieval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }));
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    loadDocuments().catch((error) => {
+      document.getElementById("documents-list").innerHTML = `<div class="muted">${error.message}</div>`;
+    });
+  </script>
+</body>
+</html>

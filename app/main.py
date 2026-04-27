@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import HTMLResponse
 
 from app.evaluator import evaluate_retrieval
 from app.pdf_loader import extract_text_from_pdf
@@ -17,6 +18,7 @@ app = FastAPI(title="RAG 毕设 API", version="0.1.0")
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
 DOCUMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "documents"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 PREVIEW_CHARS = 800
@@ -34,6 +36,11 @@ def _safe_stem(name: str) -> str:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
 
 @app.get("/api/search")

@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
 
+from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
 from app.evaluator import evaluate_retrieval
 from app.pdf_loader import extract_text_from_pdf
@@ -86,6 +87,26 @@ def api_evaluate_retrieval(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"top_k": effective_top_k, **metrics}
+
+
+@app.post("/api/answer")
+def api_answer(payload: dict = Body(...)):
+    question = payload.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise HTTPException(status_code=400, detail="question 不能为空")
+
+    top_k = payload.get("top_k", 5)
+    if not isinstance(top_k, int) or not 1 <= top_k <= 20:
+        raise HTTPException(status_code=400, detail="top_k 必须在 1 到 20 之间")
+
+    method = payload.get("method", "keyword")
+    if method not in ("keyword", "bm25"):
+        raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
+
+    try:
+        return draft_answer(question, DOCUMENTS_DIR, top_k=top_k, method=method)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/documents/upload")

@@ -33,12 +33,12 @@
     }
     h2 { margin: 0 0 12px; font-size: 16px; }
     label { display: block; margin: 10px 0 6px; font-size: 13px; color: #4b5563; }
-    input, textarea, button {
+    input, textarea, select, button {
       width: 100%;
       font: inherit;
       border-radius: 6px;
     }
-    input, textarea {
+    input, textarea, select {
       border: 1px solid #c9d1dc;
       padding: 9px 10px;
       background: #ffffff;
@@ -109,6 +109,21 @@
         <input id="top-k" type="number" min="1" max="20" value="5">
         <button id="run-search" type="button">检索</button>
         <div id="search-output" class="output"></div>
+      </section>
+
+      <section aria-labelledby="answer-title">
+        <h2 id="answer-title">证据回答</h2>
+        <label for="answer-question">问题</label>
+        <input id="answer-question" type="search" placeholder="输入问题">
+        <label for="answer-method">检索方法</label>
+        <select id="answer-method">
+          <option value="keyword">keyword</option>
+          <option value="bm25">bm25</option>
+        </select>
+        <label for="answer-top-k">Top K</label>
+        <input id="answer-top-k" type="number" min="1" max="20" value="5">
+        <button id="run-answer" type="button">生成证据回答</button>
+        <div id="answer-output" class="output"></div>
       </section>
 
       <section aria-labelledby="eval-title">
@@ -189,6 +204,24 @@
       output.textContent = "Searching...";
       try {
         output.textContent = pretty(await requestJson(`/api/search?q=${encodeURIComponent(q)}&top_k=${encodeURIComponent(topK)}`));
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    document.getElementById("run-answer").addEventListener("click", async () => {
+      const output = document.getElementById("answer-output");
+      output.textContent = "Answering...";
+      try {
+        output.textContent = pretty(await requestJson("/api/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: document.getElementById("answer-question").value,
+            method: document.getElementById("answer-method").value,
+            top_k: Number(document.getElementById("answer-top-k").value || 5)
+          })
+        }));
       } catch (error) {
         output.textContent = error.message;
       }

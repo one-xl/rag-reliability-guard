@@ -120,6 +120,11 @@
           <option value="keyword">keyword</option>
           <option value="bm25">bm25</option>
         </select>
+        <label for="answer-generator">回答生成</label>
+        <select id="answer-generator">
+          <option value="extractive">extractive</option>
+          <option value="doubao">doubao</option>
+        </select>
         <label for="answer-top-k">Top K</label>
         <input id="answer-top-k" type="number" min="1" max="20" value="5">
         <button id="run-answer" type="button">生成证据回答</button>
@@ -219,6 +224,7 @@
           body: JSON.stringify({
             question: document.getElementById("answer-question").value,
             method: document.getElementById("answer-method").value,
+            generator: document.getElementById("answer-generator").value,
             top_k: Number(document.getElementById("answer-top-k").value || 5)
           })
         }));

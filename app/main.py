@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
 from app.evaluator import evaluate_retrieval
+from app.llm_client import LLMConfigurationError, LLMRequestError
 from app.pdf_loader import extract_text_from_pdf
 from app.search import search_documents
 from app.text_chunker import chunk_text
@@ -103,8 +104,22 @@ def api_answer(payload: dict = Body(...)):
     if method not in ("keyword", "bm25"):
         raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
 
+    generator = payload.get("generator", "extractive")
+    if generator not in ("extractive", "doubao"):
+        raise HTTPException(status_code=400, detail="generator 必须是 extractive 或 doubao")
+
     try:
-        return draft_answer(question, DOCUMENTS_DIR, top_k=top_k, method=method)
+        return draft_answer(
+            question,
+            DOCUMENTS_DIR,
+            top_k=top_k,
+            method=method,
+            generator=generator,
+        )
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

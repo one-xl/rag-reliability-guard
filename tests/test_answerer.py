@@ -35,6 +35,7 @@ def _write_metadata(path: Path, doc_id: str, filename: str, chunks: list[tuple[i
 
 def test_answer_refuses_when_no_results(tmp_path):
     body = draft_answer("unknown topic", tmp_path / "documents")
+    assert body["generator"] == "extractive"
     assert "没有检索到足够信息" in body["answer"]
     assert body["citations"] == []
 
@@ -51,6 +52,7 @@ def test_answer_keyword_with_citations(client, tmp_path):
     assert r.status_code == 200
     body = r.json()
     assert body["method"] == "keyword"
+    assert body["generator"] == "extractive"
     assert "[1]" in body["answer"]
     assert len(body["citations"]) == 1
     assert body["citations"][0]["document_id"] == doc_id
@@ -77,6 +79,38 @@ def test_answer_rejects_invalid_method(client):
     r = client.post("/api/answer", json={"question": "x", "method": "vector"})
     assert r.status_code == 400
     assert "method" in r.json()["detail"]
+
+
+def test_answer_rejects_invalid_generator(client):
+    r = client.post("/api/answer", json={"question": "x", "generator": "other"})
+    assert r.status_code == 400
+    assert "generator" in r.json()["detail"]
+
+
+def test_answer_doubao_generator_uses_citations(client, tmp_path, monkeypatch):
+    doc_id = str(uuid.uuid4())
+    _write_metadata(
+        tmp_path / "documents",
+        doc_id,
+        "doubao.pdf",
+        [(0, "RAG needs cited evidence")],
+    )
+
+    def fake_generate(question, citations):
+        assert question == "evidence"
+        assert citations[0]["document_id"] == doc_id
+        return "豆包生成答案 [1]"
+
+    monkeypatch.setattr("app.answerer.generate_doubao_answer", fake_generate)
+    r = client.post(
+        "/api/answer",
+        json={"question": "evidence", "generator": "doubao"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["generator"] == "doubao"
+    assert body["answer"] == "豆包生成答案 [1]"
+    assert body["citations"][0]["document_id"] == doc_id
 
 
 def test_answer_rejects_empty_question(client):

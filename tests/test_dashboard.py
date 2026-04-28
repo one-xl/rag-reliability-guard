@@ -22,3 +22,12 @@ def test_dashboard_serves_html():
     assert "/api/evaluate/external-answers" in body
     assert "external-eval-cases" in body
     assert "aggregate.by_model" in body
+    assert 'id="experiment-detail-viz-wrap"' in body
+    assert 'data-dashboard="saved-experiment-viz"' in body
+    assert 'id="experiment-detail-aggregate"' in body
+    assert 'id="experiment-detail-bars"' in body
+    assert 'id="experiment-detail-cases"' in body
+    assert 'id="experiment-detail-risks"' in body
+    assert "renderSavedExperimentViz" in body
+    assert "mean_support_rate / mean_hallucination_rate" in body
+    assert "citation_hit_rate / refusal_accuracy" in body

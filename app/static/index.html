@@ -190,6 +190,31 @@
       background: #f2f4f8;
       font-weight: 650;
     }
+    .experiment-viz-panel {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #e0e5ec;
+      background: #fbfcfe;
+    }
+    .experiment-viz-panel h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 650;
+      color: #374151;
+    }
+    .experiment-viz-panel h3:not(:first-child) {
+      margin-top: 16px;
+    }
+    .experiment-viz-metric-bars .metric-bar-row {
+      grid-template-columns: minmax(160px, 1fr) minmax(0, 2.5fr) auto;
+    }
+    table.experiment-cases-table td.q-cell {
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -381,6 +406,31 @@
       <button id="refresh-experiments" type="button" class="secondary">刷新实验列表</button>
       <div id="experiments-list" class="list"></div>
       <p class="muted" style="margin: 14px 0 6px;">实验详情</p>
+      <div id="experiment-detail-viz-wrap" class="experiment-viz-panel" hidden data-dashboard="saved-experiment-viz">
+        <h3>aggregate 总览</h3>
+        <div id="experiment-detail-aggregate" class="external-metrics"></div>
+        <div id="experiment-detail-bars" class="metric-bars experiment-viz-metric-bars" aria-label="已保存实验指标条形图"></div>
+        <h3>用例级结果</h3>
+        <div style="overflow-x: auto;">
+          <table id="experiment-detail-cases" class="ev-model-table experiment-cases-table">
+            <thead>
+              <tr>
+                <th scope="col">question</th>
+                <th scope="col">answerable</th>
+                <th scope="col">citation_hit</th>
+                <th scope="col">refused</th>
+                <th scope="col">support_rate</th>
+                <th scope="col">hallucination_rate</th>
+                <th scope="col">reliable</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <h3>风险提示</h3>
+        <div id="experiment-detail-risks" class="external-highlights" aria-live="polite"></div>
+      </div>
+      <p class="muted" style="margin: 10px 0 6px;">完整 JSON（可复制调试）</p>
       <div id="experiment-detail-output" class="output" tabindex="0" role="region" aria-live="polite" aria-label="选中实验完整 JSON"></div>
     </section>
   </main>
@@ -585,6 +635,182 @@
       }).join("");
     }
 
+    /** Saved answer-eval experiment viz (dashboard smoke: renderSavedExperimentViz) */
+    function fmtExperimentDash(v) {
+      if (v === null || v === undefined) return "-";
+      if (v === "") return "-";
+      if (typeof v === "number" && Number.isNaN(v)) return "-";
+      return null;
+    }
+
+    function fmtExperimentScalarForHtml(v) {
+      const d = fmtExperimentDash(v);
+      if (d !== null) return d;
+      if (typeof v === "boolean") return v ? "是" : "否";
+      if (typeof v === "number" && Number.isInteger(v)) return escHtml(String(v));
+      if (typeof v === "number") return v.toFixed(4);
+      return escHtml(String(v));
+    }
+
+    function rateBarParts(value) {
+      if (typeof value !== "number" || Number.isNaN(value)) {
+        return { pct: 0, text: "-" };
+      }
+      return {
+        pct: Math.min(100, Math.max(0, value * 100)),
+        text: value.toFixed(4),
+      };
+    }
+
+    function appendExperimentRateBars(container, title, rowsSpec) {
+      if (title) {
+        const h = document.createElement("h3");
+        h.textContent = title;
+        container.appendChild(h);
+      }
+      for (const spec of rowsSpec) {
+        const { pct, text } = rateBarParts(spec.value);
+        const rowEl = document.createElement("div");
+        rowEl.className = "metric-bar-row";
+        const fill = spec.fillClass || "";
+        rowEl.innerHTML = `
+          <label>${escHtml(spec.label)}</label>
+          <div class="metric-bar-track" aria-hidden="true"><div class="metric-bar-fill ${fill}" style="width:${pct}%"></div></div>
+          <span class="metric-bar-val">${escHtml(text)}</span>
+        `;
+        container.appendChild(rowEl);
+      }
+    }
+
+    function cellCitationHit(row) {
+      if (!row || typeof row !== "object") return "-";
+      if (row.answerable !== true) return "-";
+      if (row.hit === true) return "是";
+      if (row.hit === false) return "否";
+      return "-";
+    }
+
+    function cellRefused(row) {
+      if (!row || typeof row !== "object") return "-";
+      if (row.answerable !== false) return "-";
+      if (row.refusal_correct === true) return "是";
+      if (row.refusal_correct === false) return "否";
+      return "-";
+    }
+
+    function renderExperimentRiskTips(agg, rows) {
+      const lines = [];
+      const mh = Number(agg.mean_hallucination_rate);
+      if (!Number.isNaN(mh) && mh >= 0.25) {
+        lines.push("平均幻觉率偏高：建议核对证据覆盖与生成是否越界。");
+      }
+      const ut = Number(agg.unanswerable_total);
+      const ra = Number(agg.refusal_accuracy);
+      if (ut > 0 && !Number.isNaN(ra) && ra < 0.6) {
+        lines.push("拒答准确率偏低：不可答用例上可能误答或拒答表述不稳定。");
+      }
+      const at = Number(agg.answerable_total);
+      const chr = Number(agg.citation_hit_rate);
+      if (at > 0 && !Number.isNaN(chr) && chr < 0.7) {
+        lines.push("可答引用命中率偏低：检索、引用对齐或回答策略可能偏保守（过度拒答风险）。");
+      }
+      if (Array.isArray(rows) && at > 0) {
+        let suspicious = 0;
+        for (const r of rows) {
+          if (r && r.answerable === true && r.hit === false) {
+            const sr = Number(r.support_rate);
+            if (!Number.isNaN(sr) && sr < 0.35) suspicious += 1;
+          }
+        }
+        const ratio = suspicious / at;
+        if (suspicious >= 2 || ratio >= 0.3) {
+          lines.push("多条可答案例支持率偏低且未命中预期引用：可能存在过度拒答或证据不足。");
+        }
+      }
+      if (!lines.length) {
+        lines.push("未触发常见风险阈值；仍请结合 JSON 与场景人工复核。");
+      }
+      return lines.map((t) => `<div>${escHtml(t)}</div>`).join("");
+    }
+
+    function renderSavedExperimentViz(detail) {
+      const wrap = document.getElementById("experiment-detail-viz-wrap");
+      const aggOut = document.getElementById("experiment-detail-aggregate");
+      const barsOut = document.getElementById("experiment-detail-bars");
+      const tbody = document.querySelector("#experiment-detail-cases tbody");
+      const risksOut = document.getElementById("experiment-detail-risks");
+
+      if (!detail || typeof detail !== "object" || !aggOut || !barsOut || !tbody || !risksOut) {
+        if (wrap) wrap.hidden = true;
+        return;
+      }
+
+      const agg = detail.aggregate;
+      if (!agg || typeof agg !== "object") {
+        wrap.hidden = true;
+        return;
+      }
+
+      wrap.hidden = false;
+
+      const fmtAgg = (key) => fmtExperimentScalarForHtml(agg[key]);
+
+      aggOut.innerHTML = `
+        <dl>
+          <dt>total</dt><dd>${fmtAgg("total")}</dd>
+          <dt>answerable_total</dt><dd>${fmtAgg("answerable_total")}</dd>
+          <dt>unanswerable_total</dt><dd>${fmtAgg("unanswerable_total")}</dd>
+          <dt>answerable_hits</dt><dd>${fmtAgg("answerable_hits")}</dd>
+          <dt>citation_hit_rate</dt><dd>${fmtAgg("citation_hit_rate")}</dd>
+          <dt>refusal_correct_count</dt><dd>${fmtAgg("refusal_correct_count")}</dd>
+          <dt>refusal_accuracy</dt><dd>${fmtAgg("refusal_accuracy")}</dd>
+          <dt>mean_support_rate</dt><dd>${fmtAgg("mean_support_rate")}</dd>
+          <dt>mean_hallucination_rate</dt><dd>${fmtAgg("mean_hallucination_rate")}</dd>
+        </dl>
+      `;
+
+      barsOut.innerHTML = "";
+      appendExperimentRateBars(barsOut, "mean_support_rate / mean_hallucination_rate", [
+        { label: "mean_support_rate", value: agg.mean_support_rate, fillClass: "" },
+        { label: "mean_hallucination_rate", value: agg.mean_hallucination_rate, fillClass: "alt-a" },
+      ]);
+      const unans = agg.unanswerable_total;
+      const refAcc = agg.refusal_accuracy;
+      const refAccNum = typeof refAcc === "number" && !Number.isNaN(refAcc) ? refAcc : null;
+      const showRef = typeof unans === "number" && unans > 0 && refAccNum !== null;
+      appendExperimentRateBars(barsOut, "citation_hit_rate / refusal_accuracy", [
+        { label: "citation_hit_rate", value: agg.citation_hit_rate, fillClass: "alt-b" },
+        {
+          label: "refusal_accuracy",
+          value: showRef ? refAccNum : null,
+          fillClass: "alt-c",
+        },
+      ]);
+
+      const rows = detail.rows;
+      if (!Array.isArray(rows) || !rows.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="muted">无用例数据</td></tr>`;
+      } else {
+        tbody.innerHTML = rows.map((row) => {
+          const qRaw = row && typeof row.question === "string" ? row.question : "";
+          const qShort = qRaw.length > 72 ? `${qRaw.slice(0, 72)}…` : qRaw;
+          return `
+            <tr>
+              <td class="q-cell" title="${escHtml(qRaw)}">${escHtml(qShort || "-")}</td>
+              <td>${fmtExperimentScalarForHtml(row && row.answerable)}</td>
+              <td>${escHtml(cellCitationHit(row))}</td>
+              <td>${escHtml(cellRefused(row))}</td>
+              <td>${fmtExperimentScalarForHtml(row && row.support_rate)}</td>
+              <td>${fmtExperimentScalarForHtml(row && row.hallucination_rate)}</td>
+              <td>${fmtExperimentScalarForHtml(row && row.reliable)}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      risksOut.innerHTML = renderExperimentRiskTips(agg, Array.isArray(rows) ? rows : []);
+    }
+
     function bindExperimentRows() {
       const list = document.getElementById("experiments-list");
       list.addEventListener("click", async (event) => {
@@ -592,12 +818,16 @@
         if (!row) return;
         const runId = row.getAttribute("data-run-id");
         const out = document.getElementById("experiment-detail-output");
+        const vizWrap = document.getElementById("experiment-detail-viz-wrap");
         out.textContent = "Loading...";
+        if (vizWrap) vizWrap.hidden = true;
         try {
           const detail = await requestJson(`/api/experiments/${encodeURIComponent(runId)}`);
           out.textContent = pretty(detail);
+          renderSavedExperimentViz(detail);
         } catch (error) {
           out.textContent = error.message;
+          if (vizWrap) vizWrap.hidden = true;
         }
       });
       list.addEventListener("keydown", (event) => {

@@ -174,6 +174,8 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
 
 如果答案来自项目外部，例如另一个 RAG 服务、Agent 工作流、搜索增强管线或其他模型供应商，可以直接使用外部评测接口。评测器只需要问题、回答、是否可回答标签和证据列表。
 
+批量评测时，每条 `case` 可附带 **`provider`、`model`、`run_id`（均为可选）**，用于多模型对比：缺省时 `model` 与 `provider` 在结果里记为 `unknown`，`run_id` 为 `null`。聚合结果 `aggregate.by_model` 以 `provider/model` 为键分别统计 `total`、可答/不可答数量、`refusal_accuracy`、`over_refusal_rate`、平均支持率与平均幻觉率（不调用真实大模型，仅占位元数据）。
+
 示例输入：
 
 ```json
@@ -182,6 +184,9 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
   "cases": [
     {
       "case_id": "supported-rag-answer",
+      "provider": "volcengine",
+      "model": "doubao-pro",
+      "run_id": "exp-2026-001",
       "question": "What does RAG use before generating an answer?",
       "answerable": true,
       "answer": "RAG uses retrieved evidence before generating an answer.",
@@ -224,6 +229,8 @@ curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answers" `
 ```text
 data/experiments/external_eval_<timestamp>.json
 ```
+
+脚本写入的 JSON 与接口响应一致，包含每条 `rows` 的 `model` / `provider` / `run_id` 以及 `aggregate.by_model`。
 
 外部评测指标：
 
@@ -286,7 +293,7 @@ data/experiments/comparison_<timestamp>.csv
 当前预期结果：
 
 ```text
-95 passed
+98 passed
 ```
 
 常用子集测试：

@@ -41,6 +41,9 @@ def test_evaluate_external_answer_case_supported_answer():
     assert row["over_refusal"] is False
     assert row["support_rate"] >= 0.5
     assert row["reliable"] is True
+    assert row["model"] == "unknown"
+    assert row["provider"] == "unknown"
+    assert row["run_id"] is None
 
 
 def test_evaluate_external_answer_case_over_refusal():
@@ -93,6 +96,90 @@ def test_evaluate_external_answer_cases_aggregate_counts():
     assert agg["unanswerable_total"] == 1
     assert agg["refusal_accuracy"] == 1.0
     assert agg["over_refusal_rate"] == 0.5
+    assert "by_model" in agg
+    assert len(agg["by_model"]) == 1
+    u = agg["by_model"]["unknown/unknown"]
+    assert u["total"] == 3
+    assert u["answerable_total"] == 2
+    assert u["unanswerable_total"] == 1
+    assert u["refusal_accuracy"] == 1.0
+    assert u["over_refusal_rate"] == 0.5
+
+
+def test_evaluate_external_answer_case_optional_metadata_defaults_unknown():
+    row = evaluate_external_answer_case(
+        {
+            "question": "q",
+            "answerable": True,
+            "answer": "a",
+            "evidence": [{"text": "a"}],
+        },
+    )
+    assert row["model"] == "unknown"
+    assert row["provider"] == "unknown"
+    assert row["run_id"] is None
+
+
+def test_evaluate_external_answer_case_optional_metadata_and_run_id():
+    row = evaluate_external_answer_case(
+        {
+            "question": "q",
+            "answerable": True,
+            "answer": "a",
+            "evidence": [{"text": "a"}],
+            "model": "gpt-4.1-mini",
+            "provider": "openai",
+            "run_id": "exp-001",
+        },
+    )
+    assert row["model"] == "gpt-4.1-mini"
+    assert row["provider"] == "openai"
+    assert row["run_id"] == "exp-001"
+
+
+def test_evaluate_external_answer_cases_by_model_aggregate():
+    out = evaluate_external_answer_cases(
+        [
+            {
+                "question": "What does RAG use?",
+                "answerable": True,
+                "answer": "RAG uses retrieved evidence.",
+                "provider": "openai",
+                "model": "gpt-4.1-mini",
+                "evidence": [{"text": "RAG uses retrieved evidence before generating an answer."}],
+            },
+            {
+                "question": "What metric measures refusal?",
+                "answerable": True,
+                "answer": "I cannot answer because there is not enough information.",
+                "provider": "openai",
+                "model": "gpt-4.1-mini",
+                "evidence": [{"text": "Refusal accuracy measures correct refusal."}],
+            },
+            {
+                "question": "What is the private key?",
+                "answerable": False,
+                "answer": "I cannot answer because there is not enough information.",
+                "provider": "volcengine",
+                "model": "doubao-pro",
+                "evidence": [],
+            },
+        ],
+        min_support_rate=0.5,
+    )
+    by_model = out["aggregate"]["by_model"]
+    assert set(by_model) == {"openai/gpt-4.1-mini", "volcengine/doubao-pro"}
+    o = by_model["openai/gpt-4.1-mini"]
+    assert o["total"] == 2
+    assert o["answerable_total"] == 2
+    assert o["unanswerable_total"] == 0
+    assert o["refusal_accuracy"] == 0.0
+    assert o["over_refusal_rate"] == 0.5
+    v = by_model["volcengine/doubao-pro"]
+    assert v["total"] == 1
+    assert v["unanswerable_total"] == 1
+    assert v["refusal_accuracy"] == 1.0
+    assert v["over_refusal_rate"] == 0.0
 
 
 def test_evaluate_external_answer_cases_rejects_bad_payload():
@@ -118,6 +205,8 @@ def test_external_answer_api_success():
     body = response.json()
     assert body["support_rate"] >= 0.5
     assert body["reliable"] is True
+    assert body["model"] == "unknown"
+    assert body["provider"] == "unknown"
 
 
 def test_external_answers_api_success():
@@ -137,7 +226,11 @@ def test_external_answers_api_success():
         },
     )
     assert response.status_code == 200
-    assert response.json()["aggregate"]["total"] == 1
+    body = response.json()
+    assert body["aggregate"]["total"] == 1
+    assert "by_model" in body["aggregate"]
+    assert "unknown/unknown" in body["aggregate"]["by_model"]
+    assert body["aggregate"]["by_model"]["unknown/unknown"]["total"] == 1
 
 
 def test_external_answers_api_rejects_invalid_cases():
@@ -157,7 +250,10 @@ def test_external_eval_script_helpers(tmp_path):
     assert len(payload["cases"]) == 1
 
     out = write_result(
-        {"rows": [], "aggregate": {"total": 0}},
+        {
+            "rows": [],
+            "aggregate": {"total": 0, "by_model": {}},
+        },
         dataset_path=dataset,
         output_dir=tmp_path,
         timestamp="20260101_000000",
@@ -165,3 +261,4 @@ def test_external_eval_script_helpers(tmp_path):
     assert out.name == "external_eval_20260101_000000.json"
     record = json.loads(out.read_text(encoding="utf-8"))
     assert record["dataset"].endswith("cases.json")
+    assert record["aggregate"]["by_model"] == {}

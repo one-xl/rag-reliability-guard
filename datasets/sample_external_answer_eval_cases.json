@@ -1,9 +1,12 @@
 {
-  "_comment": "Model-agnostic external answer/evidence evaluation examples.",
+  "_comment": "Model-agnostic external answer/evidence evaluation examples. provider/model are metadata only (no live LLM calls).",
   "min_support_rate": 0.5,
   "cases": [
     {
       "case_id": "supported-rag-answer",
+      "provider": "volcengine",
+      "model": "doubao-pro",
+      "run_id": "sample-run-doubao-1",
       "question": "What does RAG use before generating an answer?",
       "answerable": true,
       "answer": "RAG uses retrieved evidence before generating an answer.",
@@ -17,6 +20,8 @@
     },
     {
       "case_id": "unanswerable-refusal",
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
       "question": "What is the private API key used by the system?",
       "answerable": false,
       "answer": "I cannot answer because there is not enough information in the supplied evidence.",
@@ -24,6 +29,8 @@
     },
     {
       "case_id": "answerable-over-refusal",
+      "provider": "alibaba",
+      "model": "qwen-plus",
       "question": "What metric measures correct refusal on unanswerable questions?",
       "answerable": true,
       "answer": "I cannot answer because there is not enough information.",

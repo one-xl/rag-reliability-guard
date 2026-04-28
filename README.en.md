@@ -100,9 +100,28 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
 
 Use this path when the answer was produced outside this app, for example by another RAG service, an agent workflow, a search pipeline, or a different model provider.
 
+**Multi-model comparison:** each case may include optional metadata `provider`, `model`, and `run_id` (strings). If `provider` or `model` is omitted, the evaluator fills them with `"unknown"` in per-row output; missing `run_id` becomes JSON `null`. Batch responses add `aggregate.by_model`, an object keyed by `"provider/model"` with per-model totals, answerable/unanswerable counts, `refusal_accuracy`, `over_refusal_rate`, `mean_support_rate`, and `mean_hallucination_rate`. These fields are labels only—no remote LLM is invoked.
+
+Example case fields:
+
+```json
+{
+  "case_id": "supported-rag-answer",
+  "provider": "openai",
+  "model": "gpt-4.1-mini",
+  "run_id": "exp-2026-001",
+  "question": "What does RAG use before generating an answer?",
+  "answerable": true,
+  "answer": "RAG uses retrieved evidence before generating an answer.",
+  "evidence": [{ "evidence_id": "doc-1#chunk-1", "source": "example.md", "text": "..." }]
+}
+```
+
 ```powershell
 .\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset datasets\sample_external_answer_eval_cases.json
 ```
+
+The saved file under `data/experiments/external_eval_<timestamp>.json` mirrors the API payload, including `aggregate.by_model`.
 
 Metrics include:
 
@@ -111,6 +130,7 @@ Metrics include:
 - `refusal_accuracy`
 - `over_refusal_rate`
 - `reliable`
+- per-model rollups in `aggregate.by_model` for batch evaluation
 
 ## Experiment Workflow
 
@@ -129,7 +149,7 @@ Metrics include:
 Expected current result:
 
 ```text
-95 passed
+98 passed
 ```
 
 ## Important API Endpoints

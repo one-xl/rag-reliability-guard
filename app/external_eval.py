@@ -27,6 +27,20 @@ def is_refusal(answer: str) -> bool:
     return any(marker.lower() in lowered for marker in REFUSAL_MARKERS)
 
 
+def _optional_meta_str(raw: object, *, default: str = "unknown") -> str:
+    if raw is None:
+        return default
+    s = str(raw).strip()
+    return s if s else default
+
+
+def _optional_run_id(raw: object) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s if s else None
+
+
 def _validate_evidence(evidence: object, case_index: int) -> list[dict]:
     if evidence is None:
         return []
@@ -70,6 +84,9 @@ def _validate_external_case(case: dict, case_index: int) -> dict:
         "answer": answer,
         "answerable": answerable,
         "evidence": _validate_evidence(case.get("evidence", []), case_index),
+        "model": _optional_meta_str(case.get("model"), default="unknown"),
+        "provider": _optional_meta_str(case.get("provider"), default="unknown"),
+        "run_id": _optional_run_id(case.get("run_id")),
     }
 
 
@@ -104,6 +121,9 @@ def evaluate_external_answer_case(
     answerable = normalized["answerable"]
     refusal_correct = (not answerable and refused) if not answerable else None
     over_refusal = (answerable and refused) if answerable else None
+    model = normalized["model"]
+    provider = normalized["provider"]
+    run_id = normalized["run_id"]
 
     reliable: bool | None
     if min_support_rate is None:
@@ -116,6 +136,9 @@ def evaluate_external_answer_case(
     return {
         "case_id": normalized["case_id"],
         "question": normalized["question"],
+        "model": model,
+        "provider": provider,
+        "run_id": run_id,
         "answerable": answerable,
         "evidence_count": len(citations),
         "refused": refused,
@@ -161,6 +184,15 @@ def evaluate_external_answer_cases(
         else 0.0
     )
 
+    by_model_buckets: dict[str, list[dict]] = {}
+    for row in rows:
+        key = f'{row["provider"]}/{row["model"]}'
+        by_model_buckets.setdefault(key, []).append(row)
+    by_model = {
+        key: _aggregate_rows_for_model_group(by_model_buckets[key])
+        for key in sorted(by_model_buckets)
+    }
+
     return {
         "min_support_rate": min_support_rate,
         "rows": rows,
@@ -178,5 +210,34 @@ def evaluate_external_answer_cases(
             ),
             "mean_support_rate": mean_support,
             "mean_hallucination_rate": mean_hallucination,
+            "by_model": by_model,
         },
+    }
+
+
+def _aggregate_rows_for_model_group(rows: list[dict]) -> dict:
+    answerable_rows = [row for row in rows if row["answerable"]]
+    unanswerable_rows = [row for row in rows if not row["answerable"]]
+    refusal_correct_count = sum(1 for row in unanswerable_rows if row["refusal_correct"])
+    over_refusal_count = sum(1 for row in answerable_rows if row["over_refusal"])
+    mean_support = (
+        sum(float(row["support_rate"]) for row in rows) / len(rows) if rows else 0.0
+    )
+    mean_hallucination = (
+        sum(float(row["hallucination_rate"]) for row in rows) / len(rows)
+        if rows
+        else 0.0
+    )
+    return {
+        "total": len(rows),
+        "answerable_total": len(answerable_rows),
+        "unanswerable_total": len(unanswerable_rows),
+        "refusal_accuracy": (
+            refusal_correct_count / len(unanswerable_rows) if unanswerable_rows else 0.0
+        ),
+        "over_refusal_rate": (
+            over_refusal_count / len(answerable_rows) if answerable_rows else 0.0
+        ),
+        "mean_support_rate": mean_support,
+        "mean_hallucination_rate": mean_hallucination,
     }

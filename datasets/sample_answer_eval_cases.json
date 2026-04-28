@@ -1,0 +1,24 @@
+{
+  "_comment": "POST body for /api/evaluate/answers and /api/evaluate/answers/export - replace expected_document_id with real doc UUIDs after document ingestion",
+  "top_k": 5,
+  "method": "keyword",
+  "generator": "extractive",
+  "min_support_rate": 0.5,
+  "cases": [
+    {
+      "question": "示例：可回答用例（需知识库中存在对应段落）",
+      "answerable": true,
+      "expected_document_id": "00000000-0000-4000-8000-000000000001",
+      "expected_chunk_index": 0
+    },
+    {
+      "question": "示例：不可回答用例 - 应与知识库无关或无法检出",
+      "answerable": false
+    },
+    {
+      "question": "Another answerable benchmark line",
+      "answerable": true,
+      "expected_document_id": "00000000-0000-4000-8000-000000000002"
+    }
+  ]
+}

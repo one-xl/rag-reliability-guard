@@ -150,6 +150,33 @@
         <div class="muted">字段：question, answerable, expected_document_id, expected_chunk_index</div>
         <div id="eval-output" class="output"></div>
       </section>
+
+      <section aria-labelledby="answer-eval-title">
+        <h2 id="answer-eval-title">答案评测</h2>
+        <label for="answer-eval-cases">测试集 JSON（与 <code>datasets/sample_answer_eval_cases.json</code> 同形）</label>
+        <textarea id="answer-eval-cases">{
+  "top_k": 5,
+  "method": "keyword",
+  "generator": "extractive",
+  "min_support_rate": 0.5,
+  "cases": [
+    {
+      "question": "示例问题",
+      "answerable": true,
+      "expected_document_id": "00000000-0000-4000-8000-000000000001",
+      "expected_chunk_index": 0
+    },
+    {
+      "question": "应与知识库无关的查询",
+      "answerable": false
+    }
+  ]
+}</textarea>
+        <button id="run-answer-eval" type="button">运行答案评测</button>
+        <button id="download-answer-eval-csv" class="secondary" type="button">下载评测 CSV</button>
+        <div class="muted">共用接口：<code>/api/evaluate/answers</code>、<code>/api/evaluate/answers/export</code></div>
+        <div id="answer-eval-output" class="output"></div>
+      </section>
     </div>
   </main>
 
@@ -273,6 +300,56 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         }));
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    document.getElementById("run-answer-eval").addEventListener("click", async () => {
+      const output = document.getElementById("answer-eval-output");
+      output.textContent = "Evaluating answers...";
+      try {
+        const payload = JSON.parse(document.getElementById("answer-eval-cases").value);
+        output.textContent = pretty(await requestJson("/api/evaluate/answers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }));
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    document.getElementById("download-answer-eval-csv").addEventListener("click", async () => {
+      const output = document.getElementById("answer-eval-output");
+      output.textContent = "Generating CSV...";
+      try {
+        const payload = JSON.parse(document.getElementById("answer-eval-cases").value);
+        const response = await fetch("/api/evaluate/answers/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          let errBody;
+          try {
+            errBody = text ? JSON.parse(text) : null;
+          } catch {
+            errBody = text;
+          }
+          throw new Error(typeof errBody === "object" && errBody !== null ? pretty(errBody) : errBody);
+        }
+        const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "answer_evaluation.csv";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        output.textContent = "已开始下载 CSV（answer_evaluation.csv）。";
       } catch (error) {
         output.textContent = error.message;
       }

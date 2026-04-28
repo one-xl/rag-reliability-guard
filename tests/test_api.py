@@ -3,6 +3,7 @@
 import json
 import uuid
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,8 @@ from pypdf import PdfWriter
 
 from app.main import app
 from app.text_chunker import chunk_text
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture
@@ -33,6 +36,27 @@ def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def test_dashboard_includes_answer_eval_csv_download(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert 'id="download-answer-eval-csv"' in html
+    assert "/api/evaluate/answers/export" in html
+
+
+def test_sample_answer_eval_cases_json_readable():
+    path = REPO_ROOT / "datasets" / "sample_answer_eval_cases.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cases = raw["cases"]
+    assert isinstance(cases, list)
+    assert len(cases) >= 2
+    answerable = [c for c in cases if c.get("answerable") is True]
+    unanswerable = [c for c in cases if c.get("answerable") is False]
+    assert answerable and unanswerable
+    for c in answerable:
+        assert "expected_document_id" in c or "expected_chunk_index" in c
 
 
 def test_upload_valid_pdf(client):

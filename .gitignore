@@ -1,8 +1,23 @@
-data/
+# Local secrets
+.env
+
+# Python runtime/cache
 __pycache__/
 *.py[cod]
-.venv/
-venv/
+*$py.class
 .pytest_cache/
 .pytest_tmp/
-.env
+
+# Virtual environments
+.venv/
+venv/
+
+# Local app data and generated experiment records
+data/
+
+# Large or reproducible paper artifacts
+papers/*.pdf
+papers/search_result_*.json
+papers/upload_results.json
+papers/real_papers_answer_eval*.json
+papers/real_papers_answer_eval*.csv

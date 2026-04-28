@@ -106,6 +106,28 @@ def test_answer_attaches_reliability_metrics(client, tmp_path):
     assert "reliability_warning" not in body
 
 
+def test_answer_refuses_when_relevance_overlap_is_too_low(tmp_path):
+    doc_id = str(uuid.uuid4())
+    docs = tmp_path / "documents"
+    _write_metadata(
+        docs,
+        doc_id,
+        "rag.pdf",
+        [(0, "This paper discusses retrieval augmented generation evidence.")],
+    )
+    body = draft_answer(
+        "paper quantum chip manufacturing recipe",
+        docs,
+        method="bm25",
+        min_relevance_overlap=0.4,
+        min_support_rate=0.5,
+    )
+    assert "没有检索到足够信息" in body["answer"]
+    assert body["citations"] == []
+    assert body["reliable"] is False
+    assert body["relevance"]["overlap_rate"] < 0.4
+
+
 def test_answer_rejects_invalid_min_support_rate(client):
     r = client.post(
         "/api/answer",
@@ -113,6 +135,15 @@ def test_answer_rejects_invalid_min_support_rate(client):
     )
     assert r.status_code == 400
     assert "min_support_rate" in r.json()["detail"]
+
+
+def test_answer_rejects_invalid_min_relevance_overlap(client):
+    r = client.post(
+        "/api/answer",
+        json={"question": "x", "min_relevance_overlap": "high"},
+    )
+    assert r.status_code == 400
+    assert "min_relevance_overlap" in r.json()["detail"]
 
 
 def test_answer_doubao_generator_uses_citations(client, tmp_path, monkeypatch):

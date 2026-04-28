@@ -188,6 +188,33 @@ def test_evaluate_answer_cases_unanswerable_refusal(tmp_path):
     assert agg["refusal_accuracy"] == 1.0
 
 
+def test_evaluate_answer_cases_unanswerable_refusal_by_relevance_gate(tmp_path):
+    doc_id = str(uuid.uuid4())
+    docs = tmp_path / "documents"
+    _write_metadata(
+        docs,
+        doc_id,
+        "rag.pdf",
+        [(0, "This paper discusses retrieval augmented generation evidence.")],
+    )
+    out = evaluate_answer_cases(
+        [{"question": "paper quantum chip manufacturing recipe", "answerable": False}],
+        docs,
+        method="bm25",
+        generator="extractive",
+        top_k=3,
+        min_support_rate=0.5,
+        min_relevance_overlap=0.4,
+    )
+    row = out["rows"][0]
+    assert row["refusal_correct"] is True
+    assert row["retrieved_citation_count"] == 0
+    assert row["reliable"] is False
+    agg = out["aggregate"]
+    assert agg["refusal_accuracy"] == 1.0
+    assert out["min_relevance_overlap"] == 0.4
+
+
 def test_evaluate_answer_cases_aggregate_counts(tmp_path):
     doc_id = str(uuid.uuid4())
     docs = tmp_path / "documents"
@@ -290,6 +317,12 @@ def test_evaluate_answers_endpoint_invalid_payload(client):
         json={"cases": [], "min_support_rate": "high"},
     )
     assert r6.status_code == 400
+
+    r7 = client.post(
+        "/api/evaluate/answers",
+        json={"cases": [], "min_relevance_overlap": "high"},
+    )
+    assert r7.status_code == 400
 
 
 def test_answer_evaluation_to_csv():

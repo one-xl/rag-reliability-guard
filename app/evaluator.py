@@ -6,11 +6,11 @@ import csv
 from io import StringIO
 from pathlib import Path
 
-from app.answerer import draft_answer
+from app.answerer import REFUSAL_ANSWER, draft_answer
 from app.faithfulness import check_answer_faithfulness
 from app.search import search_documents
 
-_REFUSAL_MARKERS = ("知识库中没有检索到足够信息", "暂时无法回答")
+_REFUSAL_MARKERS = (REFUSAL_ANSWER, "没有检索到足够信息", "暂时无法回答")
 ANSWER_EVAL_CSV_FIELDS = [
     "question",
     "answerable",
@@ -65,6 +65,7 @@ def evaluate_answer_cases(
     generator: str = "extractive",
     top_k: int = 5,
     min_support_rate: float | None = None,
+    min_relevance_overlap: float | None = None,
 ) -> dict:
     """
     Run draft_answer per case and return reliability-oriented metrics for experiments.
@@ -76,6 +77,8 @@ def evaluate_answer_cases(
         raise ValueError("cases must be a list")
     if top_k <= 0:
         raise ValueError("top_k must be positive")
+    if min_relevance_overlap is not None and not 0.0 <= min_relevance_overlap <= 1.0:
+        raise ValueError("min_relevance_overlap must be between 0 and 1")
 
     rows: list[dict] = []
     answerable_total = 0
@@ -98,6 +101,7 @@ def evaluate_answer_cases(
             method=method,
             generator=generator,
             min_support_rate=min_support_rate,
+            min_relevance_overlap=min_relevance_overlap,
         )
         citations = draft.get("citations") or []
         if not isinstance(citations, list):
@@ -160,6 +164,7 @@ def evaluate_answer_cases(
         "generator": generator,
         "top_k": top_k,
         "min_support_rate": min_support_rate,
+        "min_relevance_overlap": min_relevance_overlap,
         "rows": rows,
         "aggregate": {
             "total": len(cases),

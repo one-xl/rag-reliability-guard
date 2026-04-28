@@ -156,6 +156,15 @@ def _evaluate_answers_payload(payload: dict) -> dict:
     if isinstance(min_support_rate, (int, float)) and not 0.0 <= float(min_support_rate) <= 1.0:
         raise HTTPException(status_code=400, detail="min_support_rate 必须在 0 到 1 之间")
 
+    min_relevance_overlap = payload.get("min_relevance_overlap")
+    if min_relevance_overlap is not None and not isinstance(min_relevance_overlap, (int, float)):
+        raise HTTPException(status_code=400, detail="min_relevance_overlap 必须是数字")
+    if (
+        isinstance(min_relevance_overlap, (int, float))
+        and not 0.0 <= float(min_relevance_overlap) <= 1.0
+    ):
+        raise HTTPException(status_code=400, detail="min_relevance_overlap 必须在 0 到 1 之间")
+
     try:
         return evaluate_answer_cases(
             cases,
@@ -164,6 +173,9 @@ def _evaluate_answers_payload(payload: dict) -> dict:
             generator=generator,
             top_k=top_k,
             min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
+            min_relevance_overlap=(
+                float(min_relevance_overlap) if min_relevance_overlap is not None else None
+            ),
         )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -252,6 +264,10 @@ def api_answer(payload: dict = Body(...)):
     if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
         raise HTTPException(status_code=400, detail="min_support_rate 必须是数字")
 
+    min_relevance_overlap = payload.get("min_relevance_overlap")
+    if min_relevance_overlap is not None and not isinstance(min_relevance_overlap, (int, float)):
+        raise HTTPException(status_code=400, detail="min_relevance_overlap 必须是数字")
+
     try:
         return draft_answer(
             question,
@@ -260,6 +276,7 @@ def api_answer(payload: dict = Body(...)):
             method=method,
             generator=generator,
             min_support_rate=min_support_rate,
+            min_relevance_overlap=min_relevance_overlap,
         )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

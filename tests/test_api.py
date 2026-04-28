@@ -47,6 +47,20 @@ def test_dashboard_includes_answer_eval_csv_download(client):
     assert "/api/evaluate/answers/export" in html
 
 
+def test_dashboard_includes_experiment_history_controls(client):
+    """首页需包含：答案评测 save 勾选、刷新实验列表、实验详情加载（列表 + fetch 详情）。"""
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert 'id="answer-eval-save"' in html
+    assert "save=true" in html
+    assert 'id="refresh-experiments"' in html
+    assert 'id="experiments-list"' in html
+    assert 'id="experiment-detail-output"' in html
+    assert 'requestJson("/api/experiments")' in html
+    assert "/api/experiments/${encodeURIComponent(runId)}" in html
+
+
 def test_sample_answer_eval_cases_json_readable():
     path = REPO_ROOT / "datasets" / "sample_answer_eval_cases.json"
     raw = json.loads(path.read_text(encoding="utf-8"))

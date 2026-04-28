@@ -53,6 +53,16 @@
       cursor: pointer;
       font-weight: 600;
     }
+    input[type="checkbox"] {
+      width: auto;
+      margin: 0 8px 0 0;
+      vertical-align: middle;
+    }
+    label.save-row {
+      display: flex;
+      align-items: center;
+      margin: 10px 0 6px;
+    }
     button.secondary { background: #596579; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
     .output {
@@ -77,6 +87,8 @@
       padding: 9px 10px;
       background: #fbfcfe;
     }
+    .experiment-row { cursor: pointer; }
+    .experiment-row:focus { outline: 2px solid #1f6feb; outline-offset: 2px; }
     .muted { color: #647084; font-size: 13px; }
     @media (max-width: 880px) {
       main, .grid { grid-template-columns: 1fr; }
@@ -172,12 +184,26 @@
     }
   ]
 }</textarea>
+        <label class="save-row" for="answer-eval-save">
+          <input id="answer-eval-save" type="checkbox" aria-describedby="answer-eval-save-hint">
+          保存本次评测记录（请求体 save=true）
+        </label>
+        <div id="answer-eval-save-hint" class="muted">勾选后服务端会写入 data/experiments，并可在下方「实验记录」中回看。</div>
         <button id="run-answer-eval" type="button">运行答案评测</button>
         <button id="download-answer-eval-csv" class="secondary" type="button">下载评测 CSV</button>
         <div class="muted">共用接口：<code>/api/evaluate/answers</code>、<code>/api/evaluate/answers/export</code></div>
         <div id="answer-eval-output" class="output"></div>
       </section>
     </div>
+
+    <section aria-labelledby="experiments-title">
+      <h2 id="experiments-title">实验记录</h2>
+      <p class="muted">列出已保存的答案评测批次（GET <code>/api/experiments</code>）；点击一行加载完整 JSON（GET <code>/api/experiments/{run_id}</code>）。</p>
+      <button id="refresh-experiments" type="button" class="secondary">刷新实验列表</button>
+      <div id="experiments-list" class="list"></div>
+      <p class="muted" style="margin: 14px 0 6px;">实验详情</p>
+      <div id="experiment-detail-output" class="output" tabindex="0" role="region" aria-live="polite" aria-label="选中实验完整 JSON"></div>
+    </section>
   </main>
 
   <script>
@@ -310,6 +336,7 @@
       output.textContent = "Evaluating answers...";
       try {
         const payload = JSON.parse(document.getElementById("answer-eval-cases").value);
+        payload.save = document.getElementById("answer-eval-save").checked;
         output.textContent = pretty(await requestJson("/api/evaluate/answers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -355,8 +382,69 @@
       }
     });
 
+    async function loadExperiments() {
+      const list = document.getElementById("experiments-list");
+      const rows = await requestJson("/api/experiments");
+      if (!rows.length) {
+        list.innerHTML = "<div class='muted'>暂无已保存实验</div>";
+        return;
+      }
+      list.innerHTML = rows.map((row) => {
+        const rid = row.run_id;
+        const escape = (s) =>
+          String(s ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/"/g, "&quot;");
+        return `
+        <div class="item experiment-row" data-run-id="${escape(rid)}"
+             role="button" tabindex="0" aria-label="查看实验 ${escape(rid)}">
+          <div><strong>${escape(rid)}</strong></div>
+          <div class="muted">${escape(row.created_at)} · ${escape(row.method)} · ${escape(row.generator)} · top_k=${escape(row.top_k)}</div>
+          <div class="muted">total=${escape(row.total)} · mean_support=${escape(row.mean_support_rate)} · mean_hallucination=${escape(row.mean_hallucination_rate)}</div>
+        </div>`;
+      }).join("");
+    }
+
+    function bindExperimentRows() {
+      const list = document.getElementById("experiments-list");
+      list.addEventListener("click", async (event) => {
+        const row = event.target.closest(".experiment-row");
+        if (!row) return;
+        const runId = row.getAttribute("data-run-id");
+        const out = document.getElementById("experiment-detail-output");
+        out.textContent = "Loading...";
+        try {
+          const detail = await requestJson(`/api/experiments/${encodeURIComponent(runId)}`);
+          out.textContent = pretty(detail);
+        } catch (error) {
+          out.textContent = error.message;
+        }
+      });
+      list.addEventListener("keydown", (event) => {
+        const row = event.target.closest(".experiment-row");
+        if (!row || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        row.click();
+      });
+    }
+
+    bindExperimentRows();
+
+    document.getElementById("refresh-experiments").addEventListener("click", () => {
+      const list = document.getElementById("experiments-list");
+      list.innerHTML = "<div class='muted'>Loading...</div>";
+      loadExperiments().catch((error) => {
+        list.innerHTML = `<div class="muted">${error.message}</div>`;
+      });
+    });
+
     loadDocuments().catch((error) => {
       document.getElementById("documents-list").innerHTML = `<div class="muted">${error.message}</div>`;
+    });
+
+    loadExperiments().catch((error) => {
+      document.getElementById("experiments-list").innerHTML = `<div class='muted'>${error.message}</div>`;
     });
   </script>
 </body>

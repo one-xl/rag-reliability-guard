@@ -96,7 +96,24 @@ data/experiments/comparison_<timestamp>.csv
 
 ### 1. 准备外部评测数据
 
-示例文件：
+**推荐演示输入（答辩 / 端到端固定演示）：**
+
+```text
+datasets/demo_external_eval_cases.json
+```
+
+该文件与 `datasets/sample_external_answer_eval_cases.json` 同形，但体量更大、场景更全，便于一次跑完指标与 `aggregate.by_model` 对比。覆盖的典型情况包括：
+
+| 场景 | 说明 |
+|---|---|
+| 有证据且回答正确 | 检索证据与陈述一致，支持率高、`reliable` 易为 true |
+| 无证据且正确拒答 | 不可回答问题、空证据、模型明确拒绝，有利于 `refusal_accuracy` |
+| 有证据但幻觉 | 证据写明某指标，回答改写为矛盾或未支持的细节，拉高幻觉代理 |
+| 有证据但过度拒答 | 本应可答且证据充分，模型仍拒答，体现 `over_refusal_rate` |
+| 不可回答却编造 | 无证据仍给出具体数值或结论，与正确拒答形成对照 |
+| 多 provider / model / run_id | 多条记录分布在 volcengine、openai、anthropic、alibaba、google、deepseek 等标签及若干 `run_id`，便于表格与条形图分模型对比 |
+
+体积较小的冒烟示例仍可使用：
 
 ```text
 datasets/sample_external_answer_eval_cases.json
@@ -123,7 +140,7 @@ datasets/sample_external_answer_eval_cases.json
 
 操作步骤：
 
-1. 将 `datasets/sample_external_answer_eval_cases.json` 的内容粘贴到文本框，或直接使用默认示例。
+1. 将 `datasets/demo_external_eval_cases.json`（推荐）或 `datasets/sample_external_answer_eval_cases.json` 的内容粘贴到文本框，或直接使用页面内置默认示例后再替换为上述文件。
 2. 点击“运行外部答案批量评测”。
 3. 查看总体 `aggregate` 指标。
 4. 查看 `aggregate.by_model` 分模型表。
@@ -137,7 +154,7 @@ datasets/sample_external_answer_eval_cases.json
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\evaluate_external_answers.py `
-  --dataset datasets\sample_external_answer_eval_cases.json
+  --dataset datasets\demo_external_eval_cases.json
 ```
 
 输出：
@@ -148,16 +165,18 @@ data/experiments/external_eval_<timestamp>.json
 
 ### 4. 生成多模型 Markdown 报告
 
+默认读取 `data/experiments/` 下最新的 `external_eval_*.json`，写入固定文件名便于演示归档：
+
 ```powershell
-.\.venv\Scripts\python.exe scripts\summarize_external_eval.py
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py --output reports\external_eval_report_demo.md
 ```
 
-也可以指定输入输出：
+不加 `--output` 时文件名带时间戳。也可以指定输入输出：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\summarize_external_eval.py `
   --input data\experiments\external_eval_<timestamp>.json `
-  --output reports\external_eval_report_custom.md
+  --output reports\external_eval_report_demo.md
 ```
 
 报告会列出整体指标、分模型指标、拒答准确率最高模型、过度拒答率最高模型、幻觉率最低模型和中文结论。

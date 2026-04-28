@@ -35,6 +35,40 @@ tests/                        pytest 测试
 
 完整演示路线见 [docs/demo_workflow.md](docs/demo_workflow.md)：从内置 PDF 知识库 baseline/guarded 对比，到外部模型/Agent 全模型评测、dashboard 可视化和报告生成。
 
+## 最短演示流程
+
+开箱即用、无需上传 PDF：用固定数据集演示「外部模型 / Agent 输出的 RAG 可靠性评测与幻觉抑制」指标链（支持率、幻觉代理、拒答准确率、过度拒答、`aggregate.by_model`）。
+
+1. **启动服务**（已在项目根目录创建虚拟环境并 `pip install -r requirements.txt`）：
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+2. **Dashboard**：浏览器打开 `http://127.0.0.1:8000/` ，在「全模型 RAG / Agent 输出评估」区域粘贴 [datasets/demo_external_eval_cases.json](datasets/demo_external_eval_cases.json) 全文并运行批量评测。
+
+3. **命令行批量评测（demo 数据集）**：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset datasets\demo_external_eval_cases.json
+```
+
+4. **生成 demo 报告**（默认选取 `data/experiments/` 下文件名排序最新的 `external_eval_*.json`；若刚执行过上一步，即为本次输出）：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py --output reports\external_eval_report_demo.md
+```
+
+需要指定某次实验 JSON 时：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py `
+  --input data\experiments\external_eval_<timestamp>.json `
+  --output reports\external_eval_report_demo.md
+```
+
+更详细的答辩级步骤与指标说明仍以 [docs/demo_workflow.md](docs/demo_workflow.md) 为准。
+
 ## 环境要求
 
 - 推荐 Python 3.12

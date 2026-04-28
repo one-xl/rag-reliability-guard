@@ -1,0 +1,90 @@
+{
+  "_comment": "End-to-end demo: multi-provider labels for aggregate.by_model only (no API keys, no live LLM calls). Scenarios: grounded answer, safe refusal, hallucination with evidence, over-refusal, fabrication on unanswerable questions.",
+  "min_support_rate": 0.5,
+  "cases": [
+    {
+      "case_id": "demo-grounded-supported",
+      "provider": "volcengine",
+      "model": "doubao-pro-256k",
+      "run_id": "eval-run-20260428-ext-multillm-batch-a",
+      "question": "What step does RAG perform before generating an answer?",
+      "answerable": true,
+      "answer": "RAG retrieves relevant passages from a knowledge base before generating an answer.",
+      "evidence": [
+        {
+          "evidence_id": "kb-rag-intro#c1",
+          "source": "rag_basics.md",
+          "text": "Retrieval-Augmented Generation first retrieves relevant passages from a corpus or knowledge base, then conditions the generator on that evidence to produce the final answer."
+        }
+      ]
+    },
+    {
+      "case_id": "demo-unanswerable-safe-refusal",
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "run_id": "eval-run-20260428-ext-multillm-batch-a",
+      "question": "What is the internal administrator password for the demo tenant?",
+      "answerable": false,
+      "answer": "I cannot answer because there is not enough information in the provided evidence, and credentials must not be inferred.",
+      "evidence": []
+    },
+    {
+      "case_id": "demo-grounded-but-hallucinated-detail",
+      "provider": "anthropic",
+      "model": "claude-3-5-sonnet-20241022",
+      "run_id": "eval-run-20260428-ext-multillm-batch-b",
+      "question": "Which evaluation metric does the paper report as primary on the dev set?",
+      "answerable": true,
+      "answer": "The paper reports BLEU as the primary metric on the dev set, with an official score of 47.3.",
+      "evidence": [
+        {
+          "evidence_id": "paper-eval#sec4",
+          "source": "eval_section.txt",
+          "text": "We use macro-F1 on the development set as our primary metric and report the best checkpoint selected by dev F1."
+        }
+      ]
+    },
+    {
+      "case_id": "demo-answerable-over-refusal",
+      "provider": "alibaba",
+      "model": "qwen-plus",
+      "run_id": "eval-run-20260428-ext-multillm-batch-b",
+      "question": "What does refusal accuracy measure in reliability benchmarks?",
+      "answerable": true,
+      "answer": "There is not enough information in the retrieved snippets to answer this question.",
+      "evidence": [
+        {
+          "evidence_id": "metrics-glossary#refusal",
+          "source": "metrics_glossary.md",
+          "text": "Refusal accuracy measures how often a system correctly declines to answer when the question is unanswerable from the evidence."
+        }
+      ]
+    },
+    {
+      "case_id": "demo-unanswerable-fabrication",
+      "provider": "google",
+      "model": "gemini-2.0-flash",
+      "run_id": "eval-run-20260428-ext-multillm-batch-c",
+      "question": "What was the exact revenue in EUR for project Orion in Q3 2024?",
+      "answerable": false,
+      "answer": "Project Orion recorded EUR 12.4 million in Q3 2024 according to the consolidated figures.",
+      "evidence": []
+    },
+    {
+      "case_id": "demo-grounded-second-provider",
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "run_id": "eval-run-20260428-ext-multillm-batch-c",
+      "question": "Why is grounding important for enterprise RAG deployments?",
+      "answerable": true,
+      "answer": "Grounding ties answers to verifiable sources so teams can audit responses and reduce unchecked fabrication.",
+      "evidence": [
+        {
+          "evidence_id": "enterprise-rag#risk",
+          "source": "enterprise_rag_notes.md",
+          "text": "Enterprise RAG emphasizes grounding: answers should cite verifiable sources so stakeholders can audit outputs and mitigate unchecked hallucinations."
+        }
+      ]
+    }
+  ]
+}

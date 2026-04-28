@@ -35,6 +35,30 @@ Local runtime data is written under `data/` and is intentionally ignored by Git.
 
 For a reproducible Chinese demo flow, see [docs/demo_workflow.md](docs/demo_workflow.md). It covers the built-in PDF RAG baseline/guarded comparison, external model/Agent evaluation, dashboard visualization, and report generation.
 
+## Quick demo (external evaluation)
+
+No PDF upload required. Use the bundled demo dataset [datasets/demo_external_eval_cases.json](datasets/demo_external_eval_cases.json) for a fixed multi-provider `answer + evidence` batch and Markdown reporting.
+
+1. Start the app (after `pip install -r requirements.txt`):
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+2. Dashboard: open `http://127.0.0.1:8000/` and paste the demo JSON into the external batch evaluation panel.
+
+3. CLI evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset datasets\demo_external_eval_cases.json
+```
+
+4. Generate a Markdown report (defaults to the newest `data/experiments/external_eval_*.json` when `--input` is omitted):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py --output reports\external_eval_report_demo.md
+```
+
 ## Requirements
 
 - Python 3.12 recommended

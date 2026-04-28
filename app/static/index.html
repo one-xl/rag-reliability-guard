@@ -127,6 +127,8 @@
         </select>
         <label for="answer-top-k">Top K</label>
         <input id="answer-top-k" type="number" min="1" max="20" value="5">
+        <label for="answer-min-support">最低支持率</label>
+        <input id="answer-min-support" type="number" min="0" max="1" step="0.05" value="0.5">
         <button id="run-answer" type="button">生成证据回答</button>
         <button id="run-faithfulness" class="secondary" type="button">评估答案可靠性</button>
         <div id="answer-output" class="output"></div>
@@ -228,7 +230,8 @@
             question: document.getElementById("answer-question").value,
             method: document.getElementById("answer-method").value,
             generator: document.getElementById("answer-generator").value,
-            top_k: Number(document.getElementById("answer-top-k").value || 5)
+            top_k: Number(document.getElementById("answer-top-k").value || 5),
+            min_support_rate: Number(document.getElementById("answer-min-support").value || 0.5)
           })
         });
         lastAnswerPayload = body;

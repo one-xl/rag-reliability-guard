@@ -87,6 +87,34 @@ def test_answer_rejects_invalid_generator(client):
     assert "generator" in r.json()["detail"]
 
 
+def test_answer_attaches_reliability_metrics(client, tmp_path):
+    doc_id = str(uuid.uuid4())
+    _write_metadata(
+        tmp_path / "documents",
+        doc_id,
+        "reliable.pdf",
+        [(0, "RAG uses retrieval evidence")],
+    )
+    r = client.post(
+        "/api/answer",
+        json={"question": "retrieval", "min_support_rate": 0.5},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reliable"] is True
+    assert body["faithfulness"]["support_rate"] >= 0.5
+    assert "reliability_warning" not in body
+
+
+def test_answer_rejects_invalid_min_support_rate(client):
+    r = client.post(
+        "/api/answer",
+        json={"question": "x", "min_support_rate": "high"},
+    )
+    assert r.status_code == 400
+    assert "min_support_rate" in r.json()["detail"]
+
+
 def test_answer_doubao_generator_uses_citations(client, tmp_path, monkeypatch):
     doc_id = str(uuid.uuid4())
     _write_metadata(

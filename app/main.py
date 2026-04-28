@@ -109,6 +109,10 @@ def api_answer(payload: dict = Body(...)):
     if generator not in ("extractive", "doubao"):
         raise HTTPException(status_code=400, detail="generator 必须是 extractive 或 doubao")
 
+    min_support_rate = payload.get("min_support_rate")
+    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
+        raise HTTPException(status_code=400, detail="min_support_rate 必须是数字")
+
     try:
         return draft_answer(
             question,
@@ -116,6 +120,7 @@ def api_answer(payload: dict = Body(...)):
             top_k=top_k,
             method=method,
             generator=generator,
+            min_support_rate=min_support_rate,
         )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
 from app.evaluator import answer_evaluation_to_csv, evaluate_answer_cases, evaluate_retrieval
+from app.external_eval import evaluate_external_answer_case, evaluate_external_answer_cases
 from app.faithfulness import check_answer_faithfulness
 from app.llm_client import LLMConfigurationError, LLMRequestError
 from app.pdf_loader import extract_text_from_pdf
@@ -131,6 +132,39 @@ def api_evaluate_answers_export(payload: dict = Body(...)):
     csv_text = answer_evaluation_to_csv(evaluation)
     headers = {"Content-Disposition": 'attachment; filename="answer_evaluation.csv"'}
     return Response(content=csv_text, media_type="text/csv; charset=utf-8", headers=headers)
+
+
+@app.post("/api/evaluate/external-answer")
+def api_evaluate_external_answer(payload: dict = Body(...)):
+    """Evaluate one externally generated answer with externally supplied evidence."""
+    min_support_rate = payload.get("min_support_rate")
+    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
+        raise HTTPException(status_code=400, detail="min_support_rate must be a number")
+    try:
+        return evaluate_external_answer_case(
+            payload,
+            min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/evaluate/external-answers")
+def api_evaluate_external_answers(payload: dict = Body(...)):
+    """Batch-evaluate external answer/evidence cases for model-agnostic RAG guardrails."""
+    cases = payload.get("cases")
+    min_support_rate = payload.get("min_support_rate")
+    if not isinstance(cases, list):
+        raise HTTPException(status_code=400, detail="cases must be a list")
+    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
+        raise HTTPException(status_code=400, detail="min_support_rate must be a number")
+    try:
+        return evaluate_external_answer_cases(
+            cases,
+            min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _evaluate_answers_payload(payload: dict) -> dict:

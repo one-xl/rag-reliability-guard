@@ -1,0 +1,39 @@
+{
+  "_comment": "Model-agnostic external answer/evidence evaluation examples.",
+  "min_support_rate": 0.5,
+  "cases": [
+    {
+      "case_id": "supported-rag-answer",
+      "question": "What does RAG use before generating an answer?",
+      "answerable": true,
+      "answer": "RAG uses retrieved evidence before generating an answer.",
+      "evidence": [
+        {
+          "evidence_id": "doc-1#chunk-1",
+          "source": "example.md",
+          "text": "Retrieval-Augmented Generation, or RAG, retrieves evidence from a knowledge base before generating an answer."
+        }
+      ]
+    },
+    {
+      "case_id": "unanswerable-refusal",
+      "question": "What is the private API key used by the system?",
+      "answerable": false,
+      "answer": "I cannot answer because there is not enough information in the supplied evidence.",
+      "evidence": []
+    },
+    {
+      "case_id": "answerable-over-refusal",
+      "question": "What metric measures correct refusal on unanswerable questions?",
+      "answerable": true,
+      "answer": "I cannot answer because there is not enough information.",
+      "evidence": [
+        {
+          "evidence_id": "doc-2#chunk-3",
+          "source": "metrics.md",
+          "text": "Refusal accuracy measures whether a system correctly refuses to answer unanswerable questions."
+        }
+      ]
+    }
+  ]
+}

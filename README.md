@@ -1,8 +1,8 @@
 # RAG Reliability Guard
 
-Evidence-based RAG evaluation and hallucination mitigation for local PDF knowledge bases.
+Model-agnostic RAG/Agent reliability evaluation and hallucination mitigation toolkit.
 
-This project is a FastAPI application for uploading PDF papers, chunking them into a local knowledge base, retrieving evidence with keyword/BM25 search, generating citation-bearing answers, and evaluating whether answers are grounded in retrieved evidence. It includes a guarded answer mode based on evidence support and relevance thresholds, plus scripts for reproducible baseline-vs-guarded experiments.
+This project evaluates whether answers from RAG systems, agents, or external LLM pipelines are grounded in supplied evidence. It can run as a local PDF RAG application, but its guardrail layer is designed to also evaluate externally generated `answer + evidence` records from any model or retrieval stack. It reports support rate, hallucination risk, refusal accuracy, over-refusal, and reliability decisions.
 
 ## Features
 
@@ -11,6 +11,8 @@ This project is a FastAPI application for uploading PDF papers, chunking them in
 - Extractive answer generation with citations
 - Optional Doubao/Volcengine Ark OpenAI-compatible answer generation
 - Faithfulness and hallucination proxy metrics
+- Model-agnostic external answer/evidence evaluation
+- Over-refusal tracking for answerable questions
 - Batch answer evaluation with JSON and CSV export
 - Experiment history and Markdown report generation
 - Real-paper evaluation dataset and thesis experiment section examples
@@ -172,6 +174,71 @@ The app uses an OpenAI-compatible Doubao/Volcengine Ark endpoint configured by `
 
 ## Evaluation Workflow
 
+### Evaluate External Model or Agent Answers
+
+Use this path when the answer was produced outside this app, for example by another RAG service, an agent workflow, a search pipeline, or a different model provider. The evaluator only needs the question, answer, answerability label, and supplied evidence.
+
+Example payload:
+
+```json
+{
+  "min_support_rate": 0.5,
+  "cases": [
+    {
+      "case_id": "supported-rag-answer",
+      "question": "What does RAG use before generating an answer?",
+      "answerable": true,
+      "answer": "RAG uses retrieved evidence before generating an answer.",
+      "evidence": [
+        {
+          "evidence_id": "doc-1#chunk-1",
+          "source": "example.md",
+          "text": "Retrieval-Augmented Generation retrieves evidence from a knowledge base before generating an answer."
+        }
+      ]
+    }
+  ]
+}
+```
+
+Single-case API:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answer" `
+  -H "Content-Type: application/json" `
+  -d "{\"question\":\"What does RAG use?\",\"answerable\":true,\"answer\":\"RAG uses retrieved evidence.\",\"evidence\":[{\"text\":\"RAG uses retrieved evidence.\"}],\"min_support_rate\":0.5}"
+```
+
+Batch API:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answers" `
+  -H "Content-Type: application/json" `
+  -d "@datasets/sample_external_answer_eval_cases.json"
+```
+
+Run the helper script:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset datasets\sample_external_answer_eval_cases.json
+```
+
+The output is written to:
+
+```text
+data/experiments/external_eval_<timestamp>.json
+```
+
+External evaluation metrics include:
+
+- `support_rate`: fraction of answer claims supported by supplied evidence
+- `hallucination_rate`: `1 - support_rate`
+- `refusal_accuracy`: correct refusal rate on unanswerable cases
+- `over_refusal_rate`: incorrect refusal rate on answerable cases
+- `reliable`: optional threshold-based reliability decision
+
+This makes the project usable as a guardrail/evaluation layer for most RAG or Agent systems, not only the built-in PDF knowledge base.
+
 ### Build a Real-Paper Evaluation Dataset
 
 After uploading/indexing the papers locally:
@@ -254,6 +321,8 @@ Run focused tests:
 | `/api/evaluate/retrieval` | POST | Evaluate retrieval cases |
 | `/api/evaluate/answers` | POST | Batch answer reliability evaluation |
 | `/api/evaluate/answers/export` | POST | Export answer evaluation CSV |
+| `/api/evaluate/external-answer` | POST | Evaluate one external answer/evidence case |
+| `/api/evaluate/external-answers` | POST | Batch-evaluate external model or agent outputs |
 | `/api/experiments` | GET | List saved experiments |
 | `/api/experiments/{run_id}` | GET | View experiment detail |
 

@@ -1,0 +1,167 @@
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.external_eval import (
+    evaluate_external_answer_case,
+    evaluate_external_answer_cases,
+    is_refusal,
+)
+from app.main import app
+from scripts.evaluate_external_answers import load_payload, write_result
+
+
+def test_is_refusal_detects_english_and_chinese_refusals():
+    assert is_refusal("I cannot answer because there is not enough information.")
+    assert is_refusal("知识库中没有足够信息，暂时无法回答。")
+    assert not is_refusal("RAG uses retrieved evidence.")
+
+
+def test_evaluate_external_answer_case_supported_answer():
+    row = evaluate_external_answer_case(
+        {
+            "case_id": "c1",
+            "question": "What does RAG use?",
+            "answerable": True,
+            "answer": "RAG uses retrieved evidence.",
+            "evidence": [
+                {
+                    "evidence_id": "doc#1",
+                    "text": "RAG uses retrieved evidence before generating an answer.",
+                    "source": "doc.md",
+                }
+            ],
+        },
+        min_support_rate=0.5,
+    )
+    assert row["case_id"] == "c1"
+    assert row["answerable"] is True
+    assert row["refused"] is False
+    assert row["over_refusal"] is False
+    assert row["support_rate"] >= 0.5
+    assert row["reliable"] is True
+
+
+def test_evaluate_external_answer_case_over_refusal():
+    row = evaluate_external_answer_case(
+        {
+            "question": "What metric measures refusal?",
+            "answerable": True,
+            "answer": "I cannot answer because there is not enough information.",
+            "evidence": [
+                {
+                    "evidence_id": "doc#2",
+                    "text": "Refusal accuracy measures correct refusal.",
+                }
+            ],
+        },
+        min_support_rate=0.5,
+    )
+    assert row["refused"] is True
+    assert row["over_refusal"] is True
+    assert row["reliable"] is False
+
+
+def test_evaluate_external_answer_cases_aggregate_counts():
+    out = evaluate_external_answer_cases(
+        [
+            {
+                "question": "What does RAG use?",
+                "answerable": True,
+                "answer": "RAG uses retrieved evidence.",
+                "evidence": [{"text": "RAG uses retrieved evidence."}],
+            },
+            {
+                "question": "What is the private key?",
+                "answerable": False,
+                "answer": "I cannot answer because there is not enough information.",
+                "evidence": [],
+            },
+            {
+                "question": "What metric measures refusal?",
+                "answerable": True,
+                "answer": "I cannot answer because there is not enough information.",
+                "evidence": [{"text": "Refusal accuracy measures correct refusal."}],
+            },
+        ],
+        min_support_rate=0.5,
+    )
+    agg = out["aggregate"]
+    assert agg["total"] == 3
+    assert agg["answerable_total"] == 2
+    assert agg["unanswerable_total"] == 1
+    assert agg["refusal_accuracy"] == 1.0
+    assert agg["over_refusal_rate"] == 0.5
+
+
+def test_evaluate_external_answer_cases_rejects_bad_payload():
+    with pytest.raises(ValueError, match="cases must be a list"):
+        evaluate_external_answer_cases("bad")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="answerable"):
+        evaluate_external_answer_cases([{"question": "x", "answer": "y"}])
+
+
+def test_external_answer_api_success():
+    client = TestClient(app)
+    response = client.post(
+        "/api/evaluate/external-answer",
+        json={
+            "question": "What does RAG use?",
+            "answerable": True,
+            "answer": "RAG uses retrieved evidence.",
+            "evidence": [{"text": "RAG uses retrieved evidence."}],
+            "min_support_rate": 0.5,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["support_rate"] >= 0.5
+    assert body["reliable"] is True
+
+
+def test_external_answers_api_success():
+    client = TestClient(app)
+    response = client.post(
+        "/api/evaluate/external-answers",
+        json={
+            "min_support_rate": 0.5,
+            "cases": [
+                {
+                    "question": "What does RAG use?",
+                    "answerable": True,
+                    "answer": "RAG uses retrieved evidence.",
+                    "evidence": [{"text": "RAG uses retrieved evidence."}],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["aggregate"]["total"] == 1
+
+
+def test_external_answers_api_rejects_invalid_cases():
+    client = TestClient(app)
+    response = client.post("/api/evaluate/external-answers", json={"cases": "bad"})
+    assert response.status_code == 400
+    assert "cases" in response.json()["detail"]
+
+
+def test_external_eval_script_helpers(tmp_path):
+    dataset = tmp_path / "cases.json"
+    dataset.write_text(
+        json.dumps({"cases": [{"question": "q", "answer": "a", "answerable": True}]}),
+        encoding="utf-8",
+    )
+    payload = load_payload(dataset)
+    assert len(payload["cases"]) == 1
+
+    out = write_result(
+        {"rows": [], "aggregate": {"total": 0}},
+        dataset_path=dataset,
+        output_dir=tmp_path,
+        timestamp="20260101_000000",
+    )
+    assert out.name == "external_eval_20260101_000000.json"
+    record = json.loads(out.read_text(encoding="utf-8"))
+    assert record["dataset"].endswith("cases.json")

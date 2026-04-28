@@ -132,6 +132,22 @@ Metrics include:
 - `reliable`
 - per-model rollups in `aggregate.by_model` for batch evaluation
 
+### Multi-model external evaluation Markdown report
+
+After `scripts/evaluate_external_answers.py` writes `data/experiments/external_eval_<timestamp>.json`, summarize it into a Chinese Markdown report (experiment time, dataset path, overall aggregate table, per-model `by_model` table, models with highest `refusal_accuracy`, highest `over_refusal_rate`, lowest `mean_hallucination_rate`, and a short conclusion):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py
+```
+
+By default, the newest `external_eval_*.json` under `data/experiments/` (lexicographic name order) is used, and the report goes to `reports/external_eval_report_<timestamp>.md`. Pass explicit paths with `--input` / `--output`, or `--experiments-dir` to change the scan folder when `--input` is omitted.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py `
+  --input data\experiments\external_eval_<timestamp>.json `
+  --output reports\external_eval_report_custom.md
+```
+
 ## Experiment Workflow
 
 ```powershell
@@ -149,7 +165,7 @@ Metrics include:
 Expected current result:
 
 ```text
-98 passed
+104 passed
 ```
 
 ## Important API Endpoints

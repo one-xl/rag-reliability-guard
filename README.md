@@ -240,6 +240,26 @@ data/experiments/external_eval_<timestamp>.json
 - `over_refusal_rate`：可回答问题上的错误拒答率
 - `reliable`：基于阈值的可靠性判断
 
+### 生成多模型外部评测 Markdown 报告
+
+在得到 `data/experiments/external_eval_<timestamp>.json` 后，可用汇总脚本生成中文 Markdown 报告：实验时间、数据集路径、整体 `aggregate` 指标表、`by_model` 分模型表，以及 `refusal_accuracy` 最高、`over_refusal_rate` 最高、`mean_hallucination_rate` 最低的模型与简短结论。
+
+默认选取 `data/experiments/` 下文件名排序最新的一条 `external_eval_*.json`，输出到 `reports/external_eval_report_<timestamp>.md`：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py
+```
+
+指定输入或输出路径：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py `
+  --input data\experiments\external_eval_<timestamp>.json `
+  --output reports\external_eval_report_custom.md
+```
+
+未指定 `--input` 时，可用 `--experiments-dir` 修改扫描目录（默认 `data/experiments`）。
+
 这使项目可以作为大部分 RAG/Agent 系统的通用评估与防护层，而不局限于内置 PDF 知识库。
 
 ## 实验流程
@@ -293,7 +313,7 @@ data/experiments/comparison_<timestamp>.csv
 当前预期结果：
 
 ```text
-98 passed
+104 passed
 ```
 
 常用子集测试：
@@ -303,6 +323,7 @@ data/experiments/comparison_<timestamp>.csv
 .\.venv\Scripts\python.exe -m pytest tests/test_external_eval.py -q
 .\.venv\Scripts\python.exe -m pytest tests/test_run_answer_eval_experiment.py -q
 .\.venv\Scripts\python.exe -m pytest tests/test_summarize_answer_eval_comparison.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_summarize_external_eval.py -q
 ```
 
 ## API 列表

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
-from app.evaluator import evaluate_retrieval
+from app.evaluator import evaluate_answer_cases, evaluate_retrieval
 from app.faithfulness import check_answer_faithfulness
 from app.llm_client import LLMConfigurationError, LLMRequestError
 from app.pdf_loader import extract_text_from_pdf
@@ -89,6 +89,48 @@ def api_evaluate_retrieval(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"top_k": effective_top_k, **metrics}
+
+
+@app.post("/api/evaluate/answers")
+def api_evaluate_answers(payload: dict = Body(...)):
+    """Batch-run draft_answer over benchmark cases for thesis experiments."""
+    cases = payload.get("cases")
+    if not isinstance(cases, list):
+        raise HTTPException(status_code=400, detail="cases 必须是列表")
+
+    top_k = payload.get("top_k", 5)
+    if not isinstance(top_k, int) or not 1 <= top_k <= 20:
+        raise HTTPException(status_code=400, detail="top_k 必须在 1 到 20 之间")
+
+    method = payload.get("method", "keyword")
+    if method not in ("keyword", "bm25"):
+        raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
+
+    generator = payload.get("generator", "extractive")
+    if generator not in ("extractive", "doubao"):
+        raise HTTPException(status_code=400, detail="generator 必须是 extractive 或 doubao")
+
+    min_support_rate = payload.get("min_support_rate")
+    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
+        raise HTTPException(status_code=400, detail="min_support_rate 必须是数字")
+    if isinstance(min_support_rate, (int, float)) and not 0.0 <= float(min_support_rate) <= 1.0:
+        raise HTTPException(status_code=400, detail="min_support_rate 必须在 0 到 1 之间")
+
+    try:
+        return evaluate_answer_cases(
+            cases,
+            DOCUMENTS_DIR,
+            method=method,
+            generator=generator,
+            top_k=top_k,
+            min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
+        )
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/answer")

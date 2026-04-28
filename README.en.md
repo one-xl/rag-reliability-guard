@@ -33,6 +33,8 @@ tests/                        Pytest test suite
 
 Local runtime data is written under `data/` and is intentionally ignored by Git.
 
+For a reproducible Chinese demo flow, see [docs/demo_workflow.md](docs/demo_workflow.md). It covers the built-in PDF RAG baseline/guarded comparison, external model/Agent evaluation, dashboard visualization, and report generation.
+
 ## Requirements
 
 - Python 3.12 recommended

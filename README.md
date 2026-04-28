@@ -33,6 +33,8 @@ tests/                        pytest 测试
 
 本地运行数据会写入 `data/`，该目录默认被 Git 忽略。
 
+完整演示路线见 [docs/demo_workflow.md](docs/demo_workflow.md)：从内置 PDF 知识库 baseline/guarded 对比，到外部模型/Agent 全模型评测、dashboard 可视化和报告生成。
+
 ## 环境要求
 
 - 推荐 Python 3.12

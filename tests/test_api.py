@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
+from app.evaluator import answer_evaluation_to_csv
 from app.main import app
 from app.text_chunker import chunk_text
 
@@ -190,3 +191,157 @@ def test_chunk_count_consistent_with_chunks(client, monkeypatch):
     raw = json.loads(meta_path.read_text(encoding="utf-8"))
     expected = chunk_text(known, chunk_size=main.CHUNK_SIZE, overlap=main.CHUNK_OVERLAP)
     assert raw["chunk_count"] == len(expected) == len(raw["chunks"])
+
+
+def _fake_answer_evaluation() -> dict:
+    return {
+        "method": "keyword",
+        "generator": "extractive",
+        "top_k": 5,
+        "min_support_rate": None,
+        "rows": [
+            {
+                "question": "q1",
+                "answerable": True,
+                "retrieved_citation_count": 0,
+                "reliable": None,
+                "support_rate": 1.0,
+                "hallucination_rate": 0.0,
+                "hit": True,
+                "refusal_correct": None,
+            }
+        ],
+        "aggregate": {
+            "total": 1,
+            "answerable_total": 1,
+            "answerable_hits": 1,
+            "citation_hit_rate": 1.0,
+            "unanswerable_total": 0,
+            "refusal_correct_count": 0,
+            "refusal_accuracy": 0.0,
+            "mean_support_rate": 1.0,
+            "mean_hallucination_rate": 0.0,
+        },
+    }
+
+
+def test_evaluate_answers_save_true_writes_json_and_csv(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    monkeypatch.setattr(
+        "app.main.evaluate_answer_cases",
+        lambda *args, **kwargs: _fake_answer_evaluation(),
+    )
+    r = client.post(
+        "/api/evaluate/answers",
+        json={
+            "cases": [{"question": "x", "answerable": True, "expected_document_id": "d"}],
+            "save": True,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    run_id = body["run_id"]
+    assert uuid.UUID(run_id)
+    assert "saved_paths" in body
+    assert body["saved_paths"]["json"] == f"data/experiments/{run_id}.json"
+    assert body["saved_paths"]["csv"] == f"data/experiments/{run_id}.csv"
+    assert body["aggregate"]["total"] == 1
+
+    jpath = experiments / f"{run_id}.json"
+    cpath = experiments / f"{run_id}.csv"
+    assert jpath.is_file()
+    assert cpath.is_file()
+    saved = json.loads(jpath.read_text(encoding="utf-8"))
+    assert saved["run_id"] == run_id
+    assert "created_at" in saved
+    assert saved["method"] == "keyword"
+    assert saved["aggregate"]["mean_support_rate"] == 1.0
+    assert cpath.read_text(encoding="utf-8") == answer_evaluation_to_csv(_fake_answer_evaluation())
+
+
+def test_evaluate_answers_without_save_has_no_run_metadata(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    monkeypatch.setattr(
+        "app.main.evaluate_answer_cases",
+        lambda *args, **kwargs: _fake_answer_evaluation(),
+    )
+    r = client.post(
+        "/api/evaluate/answers",
+        json={
+            "cases": [{"question": "x", "answerable": True, "expected_document_id": "d"}],
+            "save": False,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "run_id" not in body
+    assert "saved_paths" not in body
+    assert not experiments.exists()
+
+
+def test_list_experiments_returns_summaries_newest_first(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    experiments.mkdir(parents=True)
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    rid_a = str(uuid.uuid4())
+    rid_b = str(uuid.uuid4())
+    base = _fake_answer_evaluation()
+    rec_a = {"run_id": rid_a, "created_at": "2026-01-01T00:00:00Z", **base}
+    rec_b = {"run_id": rid_b, "created_at": "2026-02-01T00:00:00Z", **base}
+    (experiments / f"{rid_a}.json").write_text(
+        json.dumps(rec_a, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (experiments / f"{rid_b}.json").write_text(
+        json.dumps(rec_b, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    r = client.get("/api/experiments")
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) == 2
+    assert items[0]["run_id"] == rid_b
+    assert items[1]["run_id"] == rid_a
+    for item in items:
+        assert set(item.keys()) == {
+            "run_id",
+            "created_at",
+            "method",
+            "generator",
+            "top_k",
+            "total",
+            "mean_support_rate",
+            "mean_hallucination_rate",
+        }
+        assert item["method"] == "keyword"
+        assert item["generator"] == "extractive"
+        assert item["top_k"] == 5
+        assert item["total"] == 1
+        assert item["mean_support_rate"] == 1.0
+        assert item["mean_hallucination_rate"] == 0.0
+
+
+def test_get_experiment_returns_saved_json(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    experiments.mkdir(parents=True)
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    run_id = str(uuid.uuid4())
+    record = {"run_id": run_id, "created_at": "2026-03-01T00:00:00Z", **_fake_answer_evaluation()}
+    (experiments / f"{run_id}.json").write_text(
+        json.dumps(record, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    r = client.get(f"/api/experiments/{run_id}")
+    assert r.status_code == 200
+    assert r.json() == record
+
+
+def test_get_experiment_missing_returns_404(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    experiments.mkdir(parents=True)
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    missing = str(uuid.uuid4())
+    r = client.get(f"/api/experiments/{missing}")
+    assert r.status_code == 404

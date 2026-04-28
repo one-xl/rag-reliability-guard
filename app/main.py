@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
@@ -22,6 +23,7 @@ app = FastAPI(title="RAG 毕设 API", version="0.1.0")
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
 DOCUMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "documents"
+EXPERIMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "experiments"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -91,10 +93,35 @@ def api_evaluate_retrieval(
     return {"top_k": effective_top_k, **metrics}
 
 
+def _persist_answer_experiment(evaluation: dict) -> tuple[str, dict[str, str]]:
+    """Write evaluation JSON and CSV under EXPERIMENTS_DIR; return run_id and relative paths."""
+    EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    run_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    record = {"run_id": run_id, "created_at": created_at, **evaluation}
+    json_path = EXPERIMENTS_DIR / f"{run_id}.json"
+    csv_path = EXPERIMENTS_DIR / f"{run_id}.csv"
+    json_path.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    csv_text = answer_evaluation_to_csv(evaluation)
+    with csv_path.open("w", encoding="utf-8", newline="") as f:
+        f.write(csv_text)
+    rel_json = f"data/experiments/{run_id}.json"
+    rel_csv = f"data/experiments/{run_id}.csv"
+    return run_id, {"json": rel_json, "csv": rel_csv}
+
+
 @app.post("/api/evaluate/answers")
 def api_evaluate_answers(payload: dict = Body(...)):
     """Batch-run draft_answer over benchmark cases for thesis experiments."""
-    return _evaluate_answers_payload(payload)
+    save = payload.get("save") is True
+    evaluation = _evaluate_answers_payload(payload)
+    if not save:
+        return evaluation
+    run_id, saved_paths = _persist_answer_experiment(evaluation)
+    return {**evaluation, "run_id": run_id, "saved_paths": saved_paths}
 
 
 @app.post("/api/evaluate/answers/export")
@@ -144,6 +171,63 @@ def _evaluate_answers_payload(payload: dict) -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/experiments")
+def list_experiments():
+    """List persisted answer-evaluation runs (newest first by created_at)."""
+    if not EXPERIMENTS_DIR.is_dir():
+        return []
+    summaries: list[dict] = []
+    for path in EXPERIMENTS_DIR.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        run_id = data.get("run_id")
+        if not isinstance(run_id, str):
+            continue
+        agg = data.get("aggregate")
+        if not isinstance(agg, dict):
+            continue
+        summaries.append(
+            {
+                "run_id": run_id,
+                "created_at": data.get("created_at"),
+                "method": data.get("method"),
+                "generator": data.get("generator"),
+                "top_k": data.get("top_k"),
+                "total": agg.get("total"),
+                "mean_support_rate": agg.get("mean_support_rate"),
+                "mean_hallucination_rate": agg.get("mean_hallucination_rate"),
+            }
+        )
+
+    def _sort_key(item: dict):
+        ts = item.get("created_at")
+        return ts if isinstance(ts, str) else ""
+
+    summaries.sort(key=_sort_key, reverse=True)
+    return summaries
+
+
+@app.get("/api/experiments/{run_id}")
+def get_experiment(run_id: str):
+    try:
+        uuid.UUID(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="未找到该实验") from exc
+    path = EXPERIMENTS_DIR / f"{run_id}.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="未找到该实验")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.exception("读取实验 JSON 失败")
+        raise HTTPException(
+            status_code=500,
+            detail="实验数据已损坏，无法读取",
+        ) from exc
 
 
 @app.post("/api/answer")

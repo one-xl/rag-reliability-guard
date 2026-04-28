@@ -178,7 +178,12 @@ def evaluate_answer_cases(
 def answer_evaluation_to_csv(evaluation: dict) -> str:
     """Serialize per-case answer evaluation rows to CSV text."""
     output = StringIO()
-    writer = csv.DictWriter(output, fieldnames=ANSWER_EVAL_CSV_FIELDS, extrasaction="ignore")
+    writer = csv.DictWriter(
+        output,
+        fieldnames=ANSWER_EVAL_CSV_FIELDS,
+        extrasaction="ignore",
+        lineterminator="\n",
+    )
     writer.writeheader()
     for row in evaluation.get("rows", []):
         writer.writerow({field: row.get(field, "") for field in ANSWER_EVAL_CSV_FIELDS})

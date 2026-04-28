@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+from io import StringIO
 from pathlib import Path
 
 from app.answerer import draft_answer
@@ -9,6 +11,16 @@ from app.faithfulness import check_answer_faithfulness
 from app.search import search_documents
 
 _REFUSAL_MARKERS = ("知识库中没有检索到足够信息", "暂时无法回答")
+ANSWER_EVAL_CSV_FIELDS = [
+    "question",
+    "answerable",
+    "retrieved_citation_count",
+    "reliable",
+    "support_rate",
+    "hallucination_rate",
+    "hit",
+    "refusal_correct",
+]
 
 
 def _validate_case(case: dict, index: int) -> None:
@@ -161,6 +173,16 @@ def evaluate_answer_cases(
             "mean_hallucination_rate": mean_hallucination,
         },
     }
+
+
+def answer_evaluation_to_csv(evaluation: dict) -> str:
+    """Serialize per-case answer evaluation rows to CSV text."""
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=ANSWER_EVAL_CSV_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    for row in evaluation.get("rows", []):
+        writer.writerow({field: row.get(field, "") for field in ANSWER_EVAL_CSV_FIELDS})
+    return output.getvalue()
 
 
 def evaluate_retrieval(cases: list[dict], documents_dir: Path, top_k: int) -> dict:

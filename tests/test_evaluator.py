@@ -2,12 +2,14 @@
 
 import json
 import uuid
+import csv
+from io import StringIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.evaluator import evaluate_answer_cases, evaluate_retrieval
+from app.evaluator import answer_evaluation_to_csv, evaluate_answer_cases, evaluate_retrieval
 from app.main import app
 
 
@@ -288,3 +290,68 @@ def test_evaluate_answers_endpoint_invalid_payload(client):
         json={"cases": [], "min_support_rate": "high"},
     )
     assert r6.status_code == 400
+
+
+def test_answer_evaluation_to_csv():
+    csv_text = answer_evaluation_to_csv(
+        {
+            "rows": [
+                {
+                    "question": "q1",
+                    "answerable": True,
+                    "retrieved_citation_count": 2,
+                    "reliable": True,
+                    "support_rate": 0.8,
+                    "hallucination_rate": 0.2,
+                    "hit": True,
+                    "refusal_correct": None,
+                }
+            ]
+        }
+    )
+    rows = list(csv.DictReader(StringIO(csv_text)))
+    assert rows[0]["question"] == "q1"
+    assert rows[0]["answerable"] == "True"
+    assert rows[0]["retrieved_citation_count"] == "2"
+    assert rows[0]["support_rate"] == "0.8"
+
+
+def test_evaluate_answers_export_endpoint(client, tmp_path):
+    doc_id = str(uuid.uuid4())
+    _write_metadata(
+        tmp_path / "documents",
+        doc_id,
+        "export.pdf",
+        [(0, "csv export evidence")],
+    )
+    r = client.post(
+        "/api/evaluate/answers/export",
+        json={
+            "method": "keyword",
+            "generator": "extractive",
+            "top_k": 5,
+            "min_support_rate": 0.5,
+            "cases": [
+                {
+                    "question": "csv export",
+                    "answerable": True,
+                    "expected_document_id": doc_id,
+                    "expected_chunk_index": 0,
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "answer_evaluation.csv" in r.headers["content-disposition"]
+    rows = list(csv.DictReader(StringIO(r.text)))
+    assert rows[0]["question"] == "csv export"
+    assert rows[0]["answerable"] == "True"
+    assert rows[0]["hit"] == "True"
+    assert "support_rate" in rows[0]
+
+
+def test_evaluate_answers_export_rejects_invalid_payload(client):
+    r = client.post("/api/evaluate/answers/export", json={"cases": "bad"})
+    assert r.status_code == 400
+    assert "cases" in r.json()["detail"]

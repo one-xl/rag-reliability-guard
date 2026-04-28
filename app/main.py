@@ -5,11 +5,11 @@ import uuid
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
-from app.evaluator import evaluate_answer_cases, evaluate_retrieval
+from app.evaluator import answer_evaluation_to_csv, evaluate_answer_cases, evaluate_retrieval
 from app.faithfulness import check_answer_faithfulness
 from app.llm_client import LLMConfigurationError, LLMRequestError
 from app.pdf_loader import extract_text_from_pdf
@@ -94,6 +94,19 @@ def api_evaluate_retrieval(
 @app.post("/api/evaluate/answers")
 def api_evaluate_answers(payload: dict = Body(...)):
     """Batch-run draft_answer over benchmark cases for thesis experiments."""
+    return _evaluate_answers_payload(payload)
+
+
+@app.post("/api/evaluate/answers/export")
+def api_evaluate_answers_export(payload: dict = Body(...)):
+    """Export per-case answer evaluation rows as CSV for thesis tables."""
+    evaluation = _evaluate_answers_payload(payload)
+    csv_text = answer_evaluation_to_csv(evaluation)
+    headers = {"Content-Disposition": 'attachment; filename="answer_evaluation.csv"'}
+    return Response(content=csv_text, media_type="text/csv; charset=utf-8", headers=headers)
+
+
+def _evaluate_answers_payload(payload: dict) -> dict:
     cases = payload.get("cases")
     if not isinstance(cases, list):
         raise HTTPException(status_code=400, detail="cases 必须是列表")

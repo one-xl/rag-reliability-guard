@@ -26,6 +26,9 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
 DOCUMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "documents"
 EXPERIMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "experiments"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEMO_EXTERNAL_EVAL_PATH = (
+    Path(__file__).resolve().parent.parent / "datasets" / "demo_external_eval_cases.json"
+)
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 PREVIEW_CHARS = 800
@@ -43,6 +46,26 @@ def _safe_stem(name: str) -> str:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/demo/external-eval")
+def api_demo_external_eval():
+    """Return built-in external-eval demo JSON (read-only)."""
+    path = DEMO_EXTERNAL_EVAL_PATH
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="内置评测 Demo 数据不可用")
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("读取内置外部评测 Demo 失败")
+        raise HTTPException(
+            status_code=503,
+            detail="内置评测 Demo 数据不可用",
+        ) from None
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=503, detail="内置评测 Demo 数据不可用")
+    return data
 
 
 @app.get("/", response_class=HTMLResponse)

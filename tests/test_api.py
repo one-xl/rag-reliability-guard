@@ -39,6 +39,35 @@ def test_health(client):
     assert r.json() == {"status": "ok"}
 
 
+def test_demo_external_eval_returns_cases_and_min_support_rate(client):
+    r = client.get("/api/demo/external-eval")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body.get("min_support_rate"), (int, float))
+    cases = body.get("cases")
+    assert isinstance(cases, list)
+    assert len(cases) >= 6
+
+
+def test_demo_external_eval_missing_file_returns_404_no_leak(client, monkeypatch, tmp_path):
+    missing = tmp_path / "nope.json"
+    monkeypatch.setattr("app.main.DEMO_EXTERNAL_EVAL_PATH", missing)
+    r = client.get("/api/demo/external-eval")
+    assert r.status_code == 404
+    assert r.json().get("detail") == "内置评测 Demo 数据不可用"
+    assert "Traceback" not in r.text
+
+
+def test_demo_external_eval_corrupt_json_returns_503_no_leak(client, monkeypatch, tmp_path):
+    bad = tmp_path / "demo_external_eval_cases.json"
+    bad.write_text("{ not json", encoding="utf-8")
+    monkeypatch.setattr("app.main.DEMO_EXTERNAL_EVAL_PATH", bad)
+    r = client.get("/api/demo/external-eval")
+    assert r.status_code == 503
+    assert r.json().get("detail") == "内置评测 Demo 数据不可用"
+    assert "JSONDecodeError" not in r.text
+
+
 def test_dashboard_includes_answer_eval_csv_download(client):
     r = client.get("/")
     assert r.status_code == 200

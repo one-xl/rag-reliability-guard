@@ -368,8 +368,11 @@
     }
   ]
 }</textarea>
-      <button id="run-external-eval" type="button">运行外部答案批量评测</button>
-      <div class="muted" style="margin-top: 8px;">接口：<code>/api/evaluate/external-answers</code></div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+        <button id="load-external-eval-demo" type="button" class="secondary">载入内置 Demo</button>
+        <button id="run-external-eval" type="button">运行外部答案批量评测</button>
+      </div>
+      <div class="muted" style="margin-top: 8px;">接口：<code>/api/evaluate/external-answers</code> · Demo：<code>/api/demo/external-eval</code></div>
 
       <div id="external-eval-aggregate-wrap" hidden>
         <h3 style="margin: 14px 0 8px; font-size: 15px;">总体 aggregate</h3>
@@ -841,6 +844,7 @@
     bindExperimentRows();
 
     const externalEvalApiPath = "/api/evaluate/external-answers";
+    const externalEvalDemoPath = "/api/demo/external-eval";
 
     function escHtml(s) {
       return String(s ?? "")
@@ -970,6 +974,20 @@
         `;
       }).join("");
     }
+
+    document.getElementById("load-external-eval-demo").addEventListener("click", async () => {
+      const rawOut = document.getElementById("external-eval-raw-output");
+      const casesTa = document.getElementById("external-eval-cases");
+      rawOut.textContent = "载入中…";
+      document.getElementById("external-eval-aggregate-wrap").hidden = true;
+      try {
+        const data = await requestJson(externalEvalDemoPath, { method: "GET" });
+        casesTa.value = pretty(data);
+        rawOut.textContent = "已载入内置 Demo，可直接运行批量评测。";
+      } catch (error) {
+        rawOut.textContent = error.message;
+      }
+    });
 
     document.getElementById("run-external-eval").addEventListener("click", async () => {
       const rawOut = document.getElementById("external-eval-raw-output");

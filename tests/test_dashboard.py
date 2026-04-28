@@ -19,6 +19,11 @@ def test_dashboard_serves_html():
     assert "检索评测" in body
     assert "全模型 RAG / Agent 输出评估" in body
     assert "运行外部答案批量评测" in body
+    assert 'id="load-external-eval-demo"' in body
+    assert "载入内置 Demo" in body
+    assert "/api/demo/external-eval" in body
+    assert "externalEvalDemoPath" in body
+    assert "load-external-eval-demo" in body
     assert "/api/evaluate/external-answers" in body
     assert "external-eval-cases" in body
     assert "aggregate.by_model" in body

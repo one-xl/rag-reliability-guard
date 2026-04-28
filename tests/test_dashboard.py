@@ -15,4 +15,5 @@ def test_dashboard_serves_html():
     assert "刷新文档列表" in body
     assert "检索 Chunks" in body
     assert "证据回答" in body
+    assert "评估答案可靠性" in body
     assert "检索评测" in body

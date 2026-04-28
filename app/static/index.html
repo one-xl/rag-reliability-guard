@@ -128,6 +128,7 @@
         <label for="answer-top-k">Top K</label>
         <input id="answer-top-k" type="number" min="1" max="20" value="5">
         <button id="run-answer" type="button">生成证据回答</button>
+        <button id="run-faithfulness" class="secondary" type="button">评估答案可靠性</button>
         <div id="answer-output" class="output"></div>
       </section>
 
@@ -152,6 +153,8 @@
 
   <script>
     const pretty = (value) => JSON.stringify(value, null, 2);
+
+    let lastAnswerPayload = null;
 
     async function requestJson(url, options) {
       const response = await fetch(url, options);
@@ -218,7 +221,7 @@
       const output = document.getElementById("answer-output");
       output.textContent = "Answering...";
       try {
-        output.textContent = pretty(await requestJson("/api/answer", {
+        const body = await requestJson("/api/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -227,7 +230,31 @@
             generator: document.getElementById("answer-generator").value,
             top_k: Number(document.getElementById("answer-top-k").value || 5)
           })
-        }));
+        });
+        lastAnswerPayload = body;
+        output.textContent = pretty(body);
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    });
+
+    document.getElementById("run-faithfulness").addEventListener("click", async () => {
+      const output = document.getElementById("answer-output");
+      if (!lastAnswerPayload) {
+        output.textContent = "请先生成一次证据回答。";
+        return;
+      }
+      output.textContent = "Evaluating faithfulness...";
+      try {
+        const result = await requestJson("/api/evaluate/faithfulness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answer: lastAnswerPayload.answer,
+            citations: lastAnswerPayload.citations
+          })
+        });
+        output.textContent = pretty({ answer: lastAnswerPayload, faithfulness: result });
       } catch (error) {
         output.textContent = error.message;
       }

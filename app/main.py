@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
 from app.evaluator import evaluate_retrieval
+from app.faithfulness import check_answer_faithfulness
 from app.llm_client import LLMConfigurationError, LLMRequestError
 from app.pdf_loader import extract_text_from_pdf
 from app.search import search_documents
@@ -122,6 +123,17 @@ def api_answer(payload: dict = Body(...)):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/evaluate/faithfulness")
+def api_evaluate_faithfulness(payload: dict = Body(...)):
+    answer = payload.get("answer")
+    citations = payload.get("citations")
+    if not isinstance(answer, str) or not answer.strip():
+        raise HTTPException(status_code=400, detail="answer 不能为空")
+    if not isinstance(citations, list):
+        raise HTTPException(status_code=400, detail="citations 必须是列表")
+    return check_answer_faithfulness(answer, citations)
 
 
 @app.post("/api/documents/upload")

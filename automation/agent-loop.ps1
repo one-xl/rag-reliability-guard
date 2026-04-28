@@ -115,17 +115,30 @@ function Invoke-CursorAgent {
 
     if ($command.Mode -eq "wsl-agent") {
         $promptPath = Join-Path $root ".agent_prompt.txt"
-        Set-Content -LiteralPath $promptPath -Encoding UTF8 -Value $Prompt
+        $runnerPath = Join-Path $root ".cursor_agent_runner.sh"
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($promptPath, $Prompt, $utf8NoBom)
         try {
             $wslPromptPath = (& $command.File -d Ubuntu -- wslpath -a ($promptPath.Replace("\", "/"))).Trim()
-            $bashCommand = "cd '$($command.WslWorkspace)' && timeout ${AgentTimeoutSeconds}s ~/.local/bin/agent -p --force --trust --output-format text --workspace '$($command.WslWorkspace)' ""`$(cat '$wslPromptPath')"""
-            & $command.File -d Ubuntu -- bash -lc $bashCommand
+            $runner = @"
+#!/usr/bin/env bash
+set -euo pipefail
+cd '$($command.WslWorkspace)'
+prompt="`$(cat '$wslPromptPath')"
+timeout ${AgentTimeoutSeconds}s ~/.local/bin/agent -p --force --trust --output-format text --workspace '$($command.WslWorkspace)' "`$prompt"
+"@
+            [System.IO.File]::WriteAllText($runnerPath, $runner, $utf8NoBom)
+            $wslRunnerPath = (& $command.File -d Ubuntu -- wslpath -a ($runnerPath.Replace("\", "/"))).Trim()
+            & $command.File -d Ubuntu -- bash $wslRunnerPath
             if ($LASTEXITCODE -ne 0) {
                 throw "WSL Cursor Agent exited with code $LASTEXITCODE."
             }
         } finally {
             if (Test-Path -LiteralPath $promptPath) {
                 Remove-Item -LiteralPath $promptPath -Force
+            }
+            if (Test-Path -LiteralPath $runnerPath) {
+                Remove-Item -LiteralPath $runnerPath -Force
             }
         }
         return

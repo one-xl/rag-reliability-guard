@@ -17,3 +17,8 @@ def test_dashboard_serves_html():
     assert "证据回答" in body
     assert "评估答案可靠性" in body
     assert "检索评测" in body
+    assert "全模型 RAG / Agent 输出评估" in body
+    assert "运行外部答案批量评测" in body
+    assert "/api/evaluate/external-answers" in body
+    assert "external-eval-cases" in body
+    assert "aggregate.by_model" in body

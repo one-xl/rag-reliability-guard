@@ -93,6 +93,103 @@
     @media (max-width: 880px) {
       main, .grid { grid-template-columns: 1fr; }
     }
+    section.external-eval-panel {
+      grid-column: 1 / -1;
+    }
+    .external-metrics {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .external-metrics dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 14px;
+      align-items: baseline;
+    }
+    .external-metrics dt {
+      color: #647084;
+      font-weight: 600;
+    }
+    .external-metrics dd {
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .external-highlights {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #eef3fb;
+      border: 1px solid #d5e3fc;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .external-highlights strong { color: #153e75; }
+    .metric-bars {
+      margin-top: 14px;
+      display: grid;
+      gap: 16px;
+    }
+    .metric-bars h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 650;
+      color: #374151;
+    }
+    .metric-bar-row {
+      display: grid;
+      grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) auto;
+      gap: 8px 12px;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .metric-bar-row label {
+      margin: 0;
+      color: #4b5563;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .metric-bar-track {
+      height: 14px;
+      border-radius: 4px;
+      background: #e8ecf3;
+      overflow: hidden;
+    }
+    .metric-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #4f8cff, #1f6feb);
+      min-width: 2px;
+    }
+    .metric-bar-fill.alt-a { background: linear-gradient(90deg, #34a853, #188038); }
+    .metric-bar-fill.alt-b { background: linear-gradient(90deg, #ea8600, #c25700); }
+    .metric-bar-fill.alt-c { background: linear-gradient(90deg, #ab47bc, #7b1fa2); }
+    .metric-bar-val {
+      font-variant-numeric: tabular-nums;
+      color: #374151;
+      min-width: 4.5em;
+      text-align: right;
+    }
+    table.ev-model-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    table.ev-model-table th,
+    table.ev-model-table td {
+      border: 1px solid #e0e5ec;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    table.ev-model-table th {
+      background: #f2f4f8;
+      font-weight: 650;
+    }
   </style>
 </head>
 <body>
@@ -195,6 +292,88 @@
         <div id="answer-eval-output" class="output"></div>
       </section>
     </div>
+
+    <section class="external-eval-panel" aria-labelledby="external-eval-title">
+      <h2 id="external-eval-title">全模型 RAG / Agent 输出评估</h2>
+      <p class="muted">粘贴或编辑测试集 JSON（与 <code>datasets/sample_external_answer_eval_cases.json</code> 同形），批量调用外部答案评测接口。</p>
+      <label for="external-eval-cases">外部评测 JSON</label>
+      <textarea id="external-eval-cases">{
+  "_comment": "Model-agnostic external answer/evidence evaluation examples. provider/model are metadata only (no live LLM calls).",
+  "min_support_rate": 0.5,
+  "cases": [
+    {
+      "case_id": "supported-rag-answer",
+      "provider": "volcengine",
+      "model": "doubao-pro",
+      "run_id": "sample-run-doubao-1",
+      "question": "What does RAG use before generating an answer?",
+      "answerable": true,
+      "answer": "RAG uses retrieved evidence before generating an answer.",
+      "evidence": [
+        {
+          "evidence_id": "doc-1#chunk-1",
+          "source": "example.md",
+          "text": "Retrieval-Augmented Generation, or RAG, retrieves evidence from a knowledge base before generating an answer."
+        }
+      ]
+    },
+    {
+      "case_id": "unanswerable-refusal",
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "question": "What is the private API key used by the system?",
+      "answerable": false,
+      "answer": "I cannot answer because there is not enough information in the supplied evidence.",
+      "evidence": []
+    },
+    {
+      "case_id": "answerable-over-refusal",
+      "provider": "alibaba",
+      "model": "qwen-plus",
+      "question": "What metric measures correct refusal on unanswerable questions?",
+      "answerable": true,
+      "answer": "I cannot answer because there is not enough information.",
+      "evidence": [
+        {
+          "evidence_id": "doc-2#chunk-3",
+          "source": "metrics.md",
+          "text": "Refusal accuracy measures whether a system correctly refuses to answer unanswerable questions."
+        }
+      ]
+    }
+  ]
+}</textarea>
+      <button id="run-external-eval" type="button">运行外部答案批量评测</button>
+      <div class="muted" style="margin-top: 8px;">接口：<code>/api/evaluate/external-answers</code></div>
+
+      <div id="external-eval-aggregate-wrap" hidden>
+        <h3 style="margin: 14px 0 8px; font-size: 15px;">总体 aggregate</h3>
+        <div id="external-eval-aggregate" class="external-metrics"></div>
+        <div id="external-eval-highlights" class="external-highlights" aria-live="polite"></div>
+        <div id="external-eval-bars" class="metric-bars"></div>
+        <h3 style="margin: 14px 0 8px; font-size: 15px;">aggregate.by_model</h3>
+        <div style="overflow-x: auto;">
+          <table id="external-eval-by-model" class="ev-model-table">
+            <thead>
+              <tr>
+                <th scope="col">provider/model</th>
+                <th scope="col">total</th>
+                <th scope="col">answerable</th>
+                <th scope="col">unanswerable</th>
+                <th scope="col">mean_support_rate</th>
+                <th scope="col">mean_hallucination_rate</th>
+                <th scope="col">refusal_accuracy</th>
+                <th scope="col">over_refusal_rate</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="muted" style="margin-top: 16px; margin-bottom: 6px;">原始 JSON 响应（可复制调试）</p>
+      <div id="external-eval-raw-output" class="output" tabindex="0" role="region" aria-label="外部评测接口原始 JSON"></div>
+    </section>
 
     <section aria-labelledby="experiments-title">
       <h2 id="experiments-title">实验记录</h2>
@@ -430,6 +609,156 @@
     }
 
     bindExperimentRows();
+
+    const externalEvalApiPath = "/api/evaluate/external-answers";
+
+    function escHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function approxEq(a, b) {
+      return Math.abs(Number(a) - Number(b)) < 1e-9;
+    }
+
+    function computeModelHighlights(byModel) {
+      const entries = Object.entries(byModel || {});
+      if (!entries.length) {
+        return { lowHall: [], highRefusalAcc: [], highOverRefusal: [] };
+      }
+      let minH = Infinity;
+      let maxR = -Infinity;
+      let maxO = -Infinity;
+      for (const [, v] of entries) {
+        minH = Math.min(minH, Number(v.mean_hallucination_rate ?? 0));
+        maxR = Math.max(maxR, Number(v.refusal_accuracy ?? 0));
+        maxO = Math.max(maxO, Number(v.over_refusal_rate ?? 0));
+      }
+      return {
+        lowHall: entries.filter(([, v]) => approxEq(v.mean_hallucination_rate ?? 0, minH)).map(([k]) => k),
+        highRefusalAcc: entries.filter(([, v]) => approxEq(v.refusal_accuracy ?? 0, maxR)).map(([k]) => k),
+        highOverRefusal: entries.filter(([, v]) => approxEq(v.over_refusal_rate ?? 0, maxO)).map(([k]) => k),
+      };
+    }
+
+    function renderMetricBarBlock(byModel, metricKey, title, fillClass) {
+      const keys = Object.keys(byModel || {}).sort();
+      const vals = keys.map((k) => Number(byModel[k][metricKey] ?? 0));
+      const denom = Math.max(1e-9, ...vals, 1e-9);
+      const wrap = document.createElement("div");
+      const h = document.createElement("h3");
+      h.textContent = title;
+      wrap.appendChild(h);
+      keys.forEach((key) => {
+        const v = Number(byModel[key][metricKey] ?? 0);
+        const pct = Math.min(100, Math.max(0, (v / denom) * 100));
+        const row = document.createElement("div");
+        row.className = "metric-bar-row";
+        row.innerHTML = `
+          <label title="${escHtml(key)}">${escHtml(key)}</label>
+          <div class="metric-bar-track" aria-hidden="true"><div class="metric-bar-fill ${fillClass}" style="width:${pct}%"></div></div>
+          <span class="metric-bar-val">${v.toFixed(4)}</span>
+        `;
+        wrap.appendChild(row);
+      });
+      return wrap;
+    }
+
+    function renderExternalEvalViz(body) {
+      const wrap = document.getElementById("external-eval-aggregate-wrap");
+      const aggOut = document.getElementById("external-eval-aggregate");
+      const hiOut = document.getElementById("external-eval-highlights");
+      const barsOut = document.getElementById("external-eval-bars");
+      const tbody = document.querySelector("#external-eval-by-model tbody");
+
+      const agg = body && body.aggregate;
+      const byModel = agg && agg.by_model ? agg.by_model : {};
+
+      if (!agg) {
+        wrap.hidden = true;
+        tbody.innerHTML = "";
+        return;
+      }
+
+      wrap.hidden = false;
+
+      const hl = computeModelHighlights(byModel);
+      const fmt = (x) => (typeof x === "number" && !Number.isNaN(x) ? x.toFixed(4) : String(x));
+
+      aggOut.innerHTML = `
+        <dl>
+          <dt>total</dt><dd>${escHtml(fmt(agg.total))}</dd>
+          <dt>answerable_total</dt><dd>${escHtml(fmt(agg.answerable_total))}</dd>
+          <dt>unanswerable_total</dt><dd>${escHtml(fmt(agg.unanswerable_total))}</dd>
+          <dt>mean_support_rate</dt><dd>${escHtml(fmt(agg.mean_support_rate))}</dd>
+          <dt>mean_hallucination_rate</dt><dd>${escHtml(fmt(agg.mean_hallucination_rate))}</dd>
+          <dt>refusal_accuracy</dt><dd>${escHtml(fmt(agg.refusal_accuracy))}</dd>
+          <dt>over_refusal_rate</dt><dd>${escHtml(fmt(agg.over_refusal_rate))}</dd>
+          <dt>refusal_correct_count</dt><dd>${escHtml(fmt(agg.refusal_correct_count))}</dd>
+          <dt>over_refusal_count</dt><dd>${escHtml(fmt(agg.over_refusal_count))}</dd>
+          <dt>min_support_rate</dt><dd>${body.min_support_rate == null ? "null" : escHtml(fmt(body.min_support_rate))}</dd>
+        </dl>
+      `;
+
+      const joinKeys = (arr) => (arr.length ? arr.map((k) => `<strong>${escHtml(k)}</strong>`).join("、") : "（无）");
+      hiOut.innerHTML = `
+        <div><strong>幻觉率 mean_hallucination_rate 最低：</strong>${joinKeys(hl.lowHall)}</div>
+        <div><strong>拒答准确率 refusal_accuracy 最高：</strong>${joinKeys(hl.highRefusalAcc)}</div>
+        <div><strong>过度拒答率 over_refusal_rate 最高：</strong>${joinKeys(hl.highOverRefusal)}</div>
+      `;
+
+      barsOut.innerHTML = "";
+      barsOut.appendChild(renderMetricBarBlock(byModel, "mean_support_rate", "mean_support_rate（分模型，条长相对本组最大值）", ""));
+      barsOut.appendChild(renderMetricBarBlock(byModel, "mean_hallucination_rate", "mean_hallucination_rate", "alt-a"));
+      barsOut.appendChild(renderMetricBarBlock(byModel, "refusal_accuracy", "refusal_accuracy", "alt-b"));
+      barsOut.appendChild(renderMetricBarBlock(byModel, "over_refusal_rate", "over_refusal_rate", "alt-c"));
+
+      const hlH = new Set(hl.lowHall);
+      const hlR = new Set(hl.highRefusalAcc);
+      const hlO = new Set(hl.highOverRefusal);
+      const keysSorted = Object.keys(byModel).sort();
+      tbody.innerHTML = keysSorted.map((key) => {
+        const m = byModel[key];
+        const flags = [
+          hlH.has(key) ? '<span class="muted">[低幻觉]</span>' : "",
+          hlR.has(key) ? '<span class="muted">[高拒答准]</span>' : "",
+          hlO.has(key) ? '<span class="muted">[高过度拒答]</span>' : "",
+        ].filter(Boolean).join(" ");
+        return `
+          <tr>
+            <td>${escHtml(key)} ${flags}</td>
+            <td>${escHtml(fmt(m.total))}</td>
+            <td>${escHtml(fmt(m.answerable_total))}</td>
+            <td>${escHtml(fmt(m.unanswerable_total))}</td>
+            <td>${escHtml(fmt(m.mean_support_rate))}</td>
+            <td>${escHtml(fmt(m.mean_hallucination_rate))}</td>
+            <td>${escHtml(fmt(m.refusal_accuracy))}</td>
+            <td>${escHtml(fmt(m.over_refusal_rate))}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    document.getElementById("run-external-eval").addEventListener("click", async () => {
+      const rawOut = document.getElementById("external-eval-raw-output");
+      rawOut.textContent = "评测中…";
+      document.getElementById("external-eval-aggregate-wrap").hidden = true;
+      try {
+        const payload = JSON.parse(document.getElementById("external-eval-cases").value);
+        const body = await requestJson(externalEvalApiPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        rawOut.textContent = pretty(body);
+        renderExternalEvalViz(body);
+      } catch (error) {
+        rawOut.textContent = error.message;
+        document.getElementById("external-eval-aggregate-wrap").hidden = true;
+      }
+    });
 
     document.getElementById("refresh-experiments").addEventListener("click", () => {
       const list = document.getElementById("experiments-list");

@@ -1,42 +1,44 @@
 # RAG Reliability Guard
 
-Model-agnostic RAG/Agent reliability evaluation and hallucination mitigation toolkit.
+[English](README.en.md)
 
-This project evaluates whether answers from RAG systems, agents, or external LLM pipelines are grounded in supplied evidence. It can run as a local PDF RAG application, but its guardrail layer is designed to also evaluate externally generated `answer + evidence` records from any model or retrieval stack. It reports support rate, hallucination risk, refusal accuracy, over-refusal, and reliability decisions.
+一个模型无关的 RAG/Agent 输出可靠性评估与幻觉抑制工具。
 
-## Features
+本项目用于判断 RAG 系统、智能体工作流或外部大模型管线生成的回答是否有证据支撑。它既可以作为本地 PDF 知识库问答系统运行，也可以作为独立的评估层，直接评估任意外部系统传入的 `answer + evidence` 数据。系统会输出证据支持率、幻觉风险、拒答准确率、过度拒答率和可靠性判断。
 
-- PDF upload and local document indexing
-- Keyword and BM25 retrieval over text chunks
-- Extractive answer generation with citations
-- Optional Doubao/Volcengine Ark OpenAI-compatible answer generation
-- Faithfulness and hallucination proxy metrics
-- Model-agnostic external answer/evidence evaluation
-- Over-refusal tracking for answerable questions
-- Batch answer evaluation with JSON and CSV export
-- Experiment history and Markdown report generation
-- Real-paper evaluation dataset and thesis experiment section examples
+## 功能
 
-## Project Structure
+- PDF 上传、本地解析、文本切分与索引
+- 关键词检索与 BM25 检索
+- 带引用的抽取式答案生成
+- 可选接入豆包 / 火山方舟 OpenAI-compatible API
+- 答案证据支持率与幻觉率评估
+- 模型无关的外部 `answer + evidence` 评测
+- 对可回答问题的过度拒答统计
+- 批量答案评测、JSON/CSV 导出
+- 实验历史记录与 Markdown 报告生成
+- 真实论文评测集和毕设实验小节示例
+
+## 目录结构
 
 ```text
-app/                         FastAPI app, retrieval, answer generation, evaluation logic
-app/static/index.html         Browser dashboard
-datasets/                     Reproducible evaluation datasets
-docs/                         Workflow notes and thesis-ready experiment writing
-reports/                      Final Markdown experiment reports
-scripts/                      Experiment and report automation scripts
-tests/                        Pytest test suite
+app/                         FastAPI 应用、检索、答案生成、评测逻辑
+app/static/index.html         浏览器 dashboard
+datasets/                     可复现实验数据集
+docs/                         协作流程、提交清单、论文实验小节
+reports/                      Markdown 实验报告
+scripts/                      实验与报告自动化脚本
+tests/                        pytest 测试
 ```
 
-Local runtime data is written under `data/` and is intentionally ignored by Git.
+本地运行数据会写入 `data/`，该目录默认被 Git 忽略。
 
-## Requirements
+## 环境要求
 
-- Python 3.12 recommended
-- Windows PowerShell examples are shown below, but the app also works on macOS/Linux with equivalent shell commands
+- 推荐 Python 3.12
+- 以下命令以 Windows PowerShell 为例；macOS/Linux 可使用等价命令
 
-Python dependencies:
+依赖包括：
 
 ```text
 fastapi
@@ -47,35 +49,35 @@ httpx
 pytest
 ```
 
-## Setup
+## 安装部署
 
-Clone the repository:
+克隆仓库：
 
 ```powershell
 git clone https://github.com/one-xl/rag-reliability-guard.git
 cd rag-reliability-guard
 ```
 
-Create and activate a virtual environment:
+创建并激活虚拟环境：
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+安装依赖：
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-Optional Doubao configuration:
+如果需要使用豆包生成器，复制环境变量模板：
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Then edit `.env`:
+然后编辑 `.env`：
 
 ```text
 DOUBAO_API_KEY=your_ark_api_key_here
@@ -84,55 +86,53 @@ DOUBAO_MODEL=your_doubao_endpoint_or_model_id_here
 DOUBAO_TIMEOUT_SECONDS=60
 ```
 
-The `.env` file is ignored by Git. Do not commit API keys.
+`.env` 已被 `.gitignore` 忽略，不要提交 API Key。
 
-## Run the App
-
-Start the local API and dashboard:
+## 启动服务
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open:
+打开 dashboard：
 
 ```text
 http://127.0.0.1:8000/
 ```
 
-Health check:
+健康检查：
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-## Basic Usage
+## 基础使用
 
-### 1. Upload PDFs
+### 1. 上传 PDF
 
-Use the dashboard at `http://127.0.0.1:8000/`, or call the API:
+可以在 dashboard 上传，也可以调用接口：
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/documents/upload" `
   -F "file=@C:\path\to\paper.pdf"
 ```
 
-Uploaded PDFs are parsed, chunked, and indexed under local `data/` directories.
+上传后，系统会解析 PDF、切分文本，并把索引元数据写入本地 `data/` 目录。
 
-### 2. Search Evidence
+### 2. 检索证据
 
 ```powershell
 curl.exe "http://127.0.0.1:8000/api/search?q=Self-RAG%20retrieve%20critique&method=bm25&top_k=3"
 ```
 
-Supported retrieval methods:
+支持两种检索方式：
 
 - `keyword`
 - `bm25`
 
-### 3. Generate an Answer
+### 3. 生成带引用答案
 
-Extractive answer with citations:
+抽取式答案：
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
@@ -140,7 +140,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
   -d "{\"question\":\"Self-RAG retrieve generate critique\",\"method\":\"bm25\",\"generator\":\"extractive\",\"top_k\":3}"
 ```
 
-Guarded answer with hallucination suppression:
+开启幻觉抑制阈值：
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
@@ -148,16 +148,16 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
   -d "{\"question\":\"Does this paper explain a quantum chip recipe?\",\"method\":\"bm25\",\"generator\":\"extractive\",\"top_k\":3,\"min_support_rate\":0.5,\"min_relevance_overlap\":0.35}"
 ```
 
-Key guardrail parameters:
+关键参数：
 
-- `min_support_rate`: minimum evidence support rate required for a reliable answer
-- `min_relevance_overlap`: minimum overlap between question content terms and retrieved evidence
+- `min_support_rate`：答案被证据支持的最低比例
+- `min_relevance_overlap`：问题有效词与检索证据的最低覆盖率
 
-If evidence is insufficient, the system refuses to answer instead of fabricating unsupported content.
+当证据不足时，系统会拒答或标记答案不可靠，避免无依据编造。
 
-### 4. Use Doubao Generation
+### 4. 使用豆包生成器
 
-After filling `.env`, set `generator` to `doubao`:
+配置 `.env` 后，将 `generator` 设置为 `doubao`：
 
 ```json
 {
@@ -170,15 +170,11 @@ After filling `.env`, set `generator` to `doubao`:
 }
 ```
 
-The app uses an OpenAI-compatible Doubao/Volcengine Ark endpoint configured by `.env`.
+## 外部模型 / Agent 答案评测
 
-## Evaluation Workflow
+如果答案来自项目外部，例如另一个 RAG 服务、Agent 工作流、搜索增强管线或其他模型供应商，可以直接使用外部评测接口。评测器只需要问题、回答、是否可回答标签和证据列表。
 
-### Evaluate External Model or Agent Answers
-
-Use this path when the answer was produced outside this app, for example by another RAG service, an agent workflow, a search pipeline, or a different model provider. The evaluator only needs the question, answer, answerability label, and supplied evidence.
-
-Example payload:
+示例输入：
 
 ```json
 {
@@ -201,7 +197,7 @@ Example payload:
 }
 ```
 
-Single-case API:
+单条评测：
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answer" `
@@ -209,7 +205,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answer" `
   -d "{\"question\":\"What does RAG use?\",\"answerable\":true,\"answer\":\"RAG uses retrieved evidence.\",\"evidence\":[{\"text\":\"RAG uses retrieved evidence.\"}],\"min_support_rate\":0.5}"
 ```
 
-Batch API:
+批量评测：
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answers" `
@@ -217,57 +213,59 @@ curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answers" `
   -d "@datasets/sample_external_answer_eval_cases.json"
 ```
 
-Run the helper script:
+也可以运行脚本：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset datasets\sample_external_answer_eval_cases.json
 ```
 
-The output is written to:
+输出文件：
 
 ```text
 data/experiments/external_eval_<timestamp>.json
 ```
 
-External evaluation metrics include:
+外部评测指标：
 
-- `support_rate`: fraction of answer claims supported by supplied evidence
-- `hallucination_rate`: `1 - support_rate`
-- `refusal_accuracy`: correct refusal rate on unanswerable cases
-- `over_refusal_rate`: incorrect refusal rate on answerable cases
-- `reliable`: optional threshold-based reliability decision
+- `support_rate`：答案陈述被证据支持的比例
+- `hallucination_rate`：`1 - support_rate`
+- `refusal_accuracy`：不可回答问题上的正确拒答率
+- `over_refusal_rate`：可回答问题上的错误拒答率
+- `reliable`：基于阈值的可靠性判断
 
-This makes the project usable as a guardrail/evaluation layer for most RAG or Agent systems, not only the built-in PDF knowledge base.
+这使项目可以作为大部分 RAG/Agent 系统的通用评估与防护层，而不局限于内置 PDF 知识库。
 
-### Build a Real-Paper Evaluation Dataset
+## 实验流程
 
-After uploading/indexing the papers locally:
+### 构造真实论文评测集
+
+先上传并索引论文，再运行：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_real_paper_eval_dataset.py --output datasets\real_paper_answer_eval_cases.json
 ```
 
-This creates answerable and unanswerable evaluation cases. Answerable cases include expected document/chunk IDs from the current local index, so rebuild this dataset after re-uploading PDFs.
+注意：可回答样例会绑定当前本地索引中的 `document_id` 和 `chunk_index`。如果重新上传论文，需要重新生成评测集。
 
-### Run Baseline vs Guarded Experiment
+### 运行 Baseline / Guarded 对比实验
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\run_answer_eval_experiment.py --dataset datasets\real_paper_answer_eval_cases.json
 ```
 
-The script runs:
+脚本会运行两组配置：
 
-- `baseline`: no support/relevance guard thresholds
-- `guarded`: `min_support_rate=0.5`, `min_relevance_overlap=0.35`
+- `baseline`：不开启证据支持率和相关性阈值
+- `guarded`：开启 `min_support_rate=0.5`、`min_relevance_overlap=0.35`
 
-It writes comparison files under `data/experiments/`:
+输出目录：
 
 ```text
-comparison_<timestamp>.json
-comparison_<timestamp>.csv
+data/experiments/comparison_<timestamp>.json
+data/experiments/comparison_<timestamp>.csv
 ```
 
-### Generate a Markdown Report
+### 生成 Markdown 实验报告
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\summarize_answer_eval_comparison.py `
@@ -275,79 +273,72 @@ comparison_<timestamp>.csv
   --output reports\answer_eval_report_real_papers.md
 ```
 
-The report summarizes:
+报告会汇总数据集、配置、引用命中率、拒答准确率、平均支持率、平均幻觉率、结论和局限性。
 
-- dataset path
-- baseline and guarded configuration
-- citation hit rate
-- refusal accuracy
-- mean support rate
-- mean hallucination rate
-- conclusion and limitations
+## 测试
 
-## Testing
-
-Run the full test suite:
+运行全量测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp .pytest_tmp
 ```
 
-Expected current result:
+当前预期结果：
 
 ```text
-86 passed
+95 passed
 ```
 
-Run focused tests:
+常用子集测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/test_answerer.py tests/test_evaluator.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_external_eval.py -q
 .\.venv\Scripts\python.exe -m pytest tests/test_run_answer_eval_experiment.py -q
 .\.venv\Scripts\python.exe -m pytest tests/test_summarize_answer_eval_comparison.py -q
 ```
 
-## Important API Endpoints
+## API 列表
 
-| Endpoint | Method | Purpose |
+| 接口 | 方法 | 用途 |
 |---|---:|---|
 | `/` | GET | Dashboard |
-| `/health` | GET | Health check |
-| `/api/documents/upload` | POST | Upload and index a PDF |
-| `/api/documents` | GET | List indexed documents |
-| `/api/search` | GET | Search indexed chunks |
-| `/api/answer` | POST | Generate citation-bearing answer |
-| `/api/evaluate/faithfulness` | POST | Evaluate answer faithfulness |
-| `/api/evaluate/retrieval` | POST | Evaluate retrieval cases |
-| `/api/evaluate/answers` | POST | Batch answer reliability evaluation |
-| `/api/evaluate/answers/export` | POST | Export answer evaluation CSV |
-| `/api/evaluate/external-answer` | POST | Evaluate one external answer/evidence case |
-| `/api/evaluate/external-answers` | POST | Batch-evaluate external model or agent outputs |
-| `/api/experiments` | GET | List saved experiments |
-| `/api/experiments/{run_id}` | GET | View experiment detail |
+| `/health` | GET | 健康检查 |
+| `/api/documents/upload` | POST | 上传并索引 PDF |
+| `/api/documents` | GET | 列出已索引文档 |
+| `/api/search` | GET | 检索文档片段 |
+| `/api/answer` | POST | 生成带引用答案 |
+| `/api/evaluate/faithfulness` | POST | 评估答案证据支持情况 |
+| `/api/evaluate/retrieval` | POST | 评估检索用例 |
+| `/api/evaluate/answers` | POST | 批量评估内置 RAG 答案 |
+| `/api/evaluate/answers/export` | POST | 导出答案评测 CSV |
+| `/api/evaluate/external-answer` | POST | 评估单条外部 answer/evidence |
+| `/api/evaluate/external-answers` | POST | 批量评估外部模型或 Agent 输出 |
+| `/api/experiments` | GET | 列出实验记录 |
+| `/api/experiments/{run_id}` | GET | 查看实验详情 |
 
-## What Is Committed vs Ignored
+## 提交与忽略规则
 
-Committed:
+会提交：
 
-- app code
-- tests
-- reusable scripts
-- example/evaluation datasets
-- thesis and workflow documentation
-- final Markdown report examples
+- 应用代码
+- 测试
+- 可复用脚本
+- 示例/评测数据集
+- 文档与论文实验材料
+- 最终 Markdown 报告示例
 
-Ignored:
+不会提交：
 
 - `.env`
 - `.venv/`
 - `data/`
-- Python/pytest caches
-- large paper PDFs under `papers/*.pdf`
-- reproducible intermediate files under `papers/`
+- Python/pytest 缓存
+- `papers/*.pdf`
+- `papers/` 下可重复生成的中间文件
 
-See `docs/commit_artifacts_checklist.md` for the current commit checklist.
+具体清单见 `docs/commit_artifacts_checklist.md`。
 
-## Notes
+## 注意事项
 
-This is a local research/prototype project. The current hallucination metric is a lightweight proxy based on evidence support, not a replacement for full human evaluation. For a thesis or production evaluation, expand the dataset, manually audit samples, and report limitations clearly.
+当前幻觉率是基于证据关键词支持的轻量代理指标，不等同于完整人工事实核查。用于论文或生产评估时，应扩大评测集、抽样人工复核，并明确报告指标局限性。

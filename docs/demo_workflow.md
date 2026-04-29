@@ -94,6 +94,27 @@ data/experiments/comparison_<timestamp>.csv
 
 这条路线用于展示“本项目不局限于毕业论文知识库，也可以评估任意模型或 Agent 输出”。
 
+### 模拟演示 vs 真实豆包实验
+
+两类流程请分开理解：
+
+| 类型 | `answer` 来源 | `provider` / `model` 含义 |
+|------|----------------|---------------------------|
+| **模拟演示（dashboard / 固定 JSON）** | 仓库里手写好的示例答案 | **演示标签**：仅用于占位与 `aggregate.by_model` 展示，评测器不会按标签调用任何外部模型，**不能解读为跨模型强弱或排名**。 |
+| **真实豆包实验** | 由 `scripts/generate_doubao_external_eval_cases.py` 读取 `.env`，调用火山方舟兼容接口生成 | **`volcengine` + `.env` 中 `DOUBAO_MODEL`** 与该次生成的答案一致：需要有效 API Key，**会产生计费与调用外部依赖**，请先确认环境与预算。 |
+
+若只做答辩演示、“跑通指标与条形图”，用 `datasets/demo_external_eval_cases.json` 粘贴评测即可（本节下文）。若要记录同一种证据条件下的豆包实测回答再在本地评估层打分，则走真实豆包实验分支。
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_doubao_external_eval_cases.py
+.\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset data\experiments\doubao_external_eval_cases_<timestamp>.json
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py `
+  --input data\experiments\external_eval_<timestamp>.json `
+  --output reports\external_eval_report_doubao_live.md
+```
+
+中间步骤的产物路径与时间戳请以本机命令行输出的实际路径为准。
+
 ### 1. 准备外部评测数据
 
 **推荐演示输入（答辩 / 端到端固定演示）：**
@@ -132,7 +153,7 @@ datasets/sample_external_answer_eval_cases.json
 - `model`：模型名，例如 `doubao-pro`
 - `run_id`：外部实验批次
 
-这些字段只作为元数据使用，外部评测不会真实调用模型。
+在 **模拟演示** JSON 里，不同 `provider` / `model` 多为占位；外部评测只吃你提交的 `answer` + `evidence`，**不会根据标签去调用真实大模型**。只有当你通过 **真实豆包实验**脚本生成 `answer` 时，`provider`/`model` 才与单次 API 调用设置一致。
 
 ### 2. 在 dashboard 中演示
 
@@ -223,7 +244,7 @@ data/experiments/external_eval_<timestamp>.json
 
 ### 外部评测会调用真实大模型吗？
 
-不会。外部评测只评估你传入的 `answer + evidence`。`provider` 和 `model` 是元数据，用于分模型统计。
+批量外部评测接口**本身**只对已给出的 `answer` 与 `evidence` 打分，**不会**按 case 里的 `provider`/`model` 字段去远程拉取答案。若需要「先让豆包生成再评测」，须单独运行 `scripts/generate_doubao_external_eval_cases.py`（依赖 `.env`，有费用与网络调用）；否则仓库里的多模型 demo 答案均为静态示例，标签用于展示分桶统计，不代表真实多模型对比。
 
 ### 如何体现项目不局限于毕业论文知识库？
 

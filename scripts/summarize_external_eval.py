@@ -105,6 +105,23 @@ def _models_extreme(by_model: dict[str, Any], metric: str, *, mode: str) -> list
     raise ValueError(f"unknown mode: {mode}")
 
 
+def _metric_extreme_value(by_model: dict[str, Any], metric: str, *, mode: str) -> float | None:
+    values: list[float] = []
+    for block in by_model.values():
+        if not isinstance(block, dict):
+            continue
+        raw = block.get(metric)
+        if isinstance(raw, (int, float)):
+            values.append(float(raw))
+    if not values:
+        return None
+    if mode == "max":
+        return max(values)
+    if mode == "min":
+        return min(values)
+    raise ValueError(f"unknown mode: {mode}")
+
+
 def _join_models(keys: list[str]) -> str:
     if not keys:
         return "（无分模型数据）"
@@ -124,10 +141,21 @@ def _short_conclusion(
         parts.append(f"本批共评测 {total} 条外部模型答案。")
 
     if by_model:
+        max_over_refusal = _metric_extreme_value(
+            by_model,
+            "over_refusal_rate",
+            mode="max",
+        )
+        if max_over_refusal is not None and max_over_refusal <= 0:
+            over_refusal_text = "本批分模型 `over_refusal_rate` 均为 0，未观察到过度拒答"
+        else:
+            over_refusal_text = (
+                f"`over_refusal_rate` 最高的是 {_join_models(top_over_refusal)}，"
+                "说明这些模型在可回答样本上更容易保守拒答"
+            )
         parts.append(
             f"分模型对比显示：`refusal_accuracy` 最高的是 {_join_models(top_refusal)}；"
-            f"`over_refusal_rate` 最高的是 {_join_models(top_over_refusal)}，"
-            f"说明这些模型在可回答样本上更容易保守拒答；"
+            f"{over_refusal_text}；"
             f"`mean_hallucination_rate` 最低的是 {_join_models(lowest_hallucination)}。"
         )
     else:

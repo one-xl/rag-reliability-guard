@@ -39,6 +39,8 @@ tests/                        pytest 测试
 
 开箱即用、无需上传 PDF：用固定数据集演示「外部模型 / Agent 输出的 RAG 可靠性评测与幻觉抑制」指标链（支持率、幻觉代理、拒答准确率、过度拒答、`aggregate.by_model`）。
 
+**说明：** `datasets/demo_external_eval_cases.json` 等 demo 中的多 `provider` / `model` / `run_id` 标签为**演示数据**，用于展示分模型统计与报告形态，**不代表真实多模型对比或排名**。若需对豆包做真实生成再评测，见下方「真实豆包外部评测数据」。
+
 1. **启动服务**（已在项目根目录创建虚拟环境并 `pip install -r requirements.txt`）：
 
 ```powershell
@@ -68,6 +70,18 @@ tests/                        pytest 测试
 ```
 
 更详细的答辩级步骤与指标说明仍以 [docs/demo_workflow.md](docs/demo_workflow.md) 为准。
+
+### 真实豆包外部评测数据（需要 `.env`，会产生 API 费用）
+
+在已配置 `DOUBAO_API_KEY` / `DOUBAO_MODEL` 的前提下，可先用 demo 骨架（`question` / `evidence` / `answerable`）调用豆包生成真实 `answer`，再跑外部评测与报告生成：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_doubao_external_eval_cases.py
+.\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset data\experiments\doubao_external_eval_cases_<timestamp>.json
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py --input data\experiments\external_eval_<timestamp>.json --output reports\external_eval_report_doubao_live.md
+```
+
+`generate_doubao_external_eval_cases.py` 默认读 `datasets\demo_external_eval_cases.json`，写出 `data\experiments\doubao_external_eval_cases_<timestamp>.json`；可用 `--source` / `--output` / `--run-id` 覆盖。第二步的 `--dataset` 请指定上一步实际生成的文件路径；第三步的 `--input` 为 `evaluate_external_answers.py` 产出的 `external_eval_*.json`（若不加 `--input` 则默认取 `data\experiments` 下最新的 `external_eval_*.json`）。
 
 ## 环境要求
 
@@ -210,7 +224,9 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
 
 如果答案来自项目外部，例如另一个 RAG 服务、Agent 工作流、搜索增强管线或其他模型供应商，可以直接使用外部评测接口。评测器只需要问题、回答、是否可回答标签和证据列表。
 
-批量评测时，每条 `case` 可附带 **`provider`、`model`、`run_id`（均为可选）**，用于多模型对比：缺省时 `model` 与 `provider` 在结果里记为 `unknown`，`run_id` 为 `null`。聚合结果 `aggregate.by_model` 以 `provider/model` 为键分别统计 `total`、可答/不可答数量、`refusal_accuracy`、`over_refusal_rate`、平均支持率与平均幻觉率（不调用真实大模型，仅占位元数据）。
+批量评测时，每条 `case` 可附带 **`provider`、`model`、`run_id`（均为可选）**，用于多模型对比：缺省时 `model` 与 `provider` 在结果里记为 `unknown`，`run_id` 为 `null`。聚合结果 `aggregate.by_model` 以 `provider/model` 为键分别统计 `total`、可答/不可答数量、`refusal_accuracy`、`over_refusal_rate`、平均支持率与平均幻觉率。
+
+**重要：** 若 `answer` 来自诸如 `datasets/demo_external_eval_cases.json` 的固定示例，其中的 `provider` / `model` 往往是**占位标签**：外部评测管线**不会据此调用真实第三方模型**，只把你一并传入的 `answer` + `evidence` 纳入指标；这些标签既不表示真实推理过程，也不宜解读为可信的跨模型强弱排名。**只有**当你的 `answer` 确实由对应后端产生（例如你用 `scripts/generate_doubao_external_eval_cases.py` 调用的豆包）时，`provider=model` 才可视为与该次生成一致的元数据。
 
 示例输入：
 
@@ -349,7 +365,7 @@ data/experiments/comparison_<timestamp>.csv
 当前预期结果：
 
 ```text
-104 passed
+112 passed
 ```
 
 常用子集测试：
@@ -360,6 +376,7 @@ data/experiments/comparison_<timestamp>.csv
 .\.venv\Scripts\python.exe -m pytest tests/test_run_answer_eval_experiment.py -q
 .\.venv\Scripts\python.exe -m pytest tests/test_summarize_answer_eval_comparison.py -q
 .\.venv\Scripts\python.exe -m pytest tests/test_summarize_external_eval.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_generate_doubao_external_eval_cases.py -q
 ```
 
 ## API 列表

@@ -39,6 +39,8 @@ For a reproducible Chinese demo flow, see [docs/demo_workflow.md](docs/demo_work
 
 No PDF upload required. Use the bundled demo dataset [datasets/demo_external_eval_cases.json](datasets/demo_external_eval_cases.json) for a fixed multi-provider `answer + evidence` batch and Markdown reporting.
 
+**Note:** In this demo file, `provider` / `model` / `run_id` are **illustrative labels** to exercise `aggregate.by_model` and reporting—they do **not** imply a real multi-model sweep or any meaningful model ranking. For a live Doubao-generated dataset, see **Live Doubao external eval data** below.
+
 1. Start the app (after `pip install -r requirements.txt`):
 
 ```powershell
@@ -58,6 +60,18 @@ No PDF upload required. Use the bundled demo dataset [datasets/demo_external_eva
 ```powershell
 .\.venv\Scripts\python.exe scripts\summarize_external_eval.py --output reports\external_eval_report_demo.md
 ```
+
+### Live Doubao external eval data (needs `.env`, billed API usage)
+
+After setting `DOUBAO_API_KEY` and `DOUBAO_MODEL`, you can take a demo scaffold (question / evidence / answerable-only), generate real Doubao answers, evaluate, then summarize:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_doubao_external_eval_cases.py
+.\.venv\Scripts\python.exe scripts\evaluate_external_answers.py --dataset data\experiments\doubao_external_eval_cases_<timestamp>.json
+.\.venv\Scripts\python.exe scripts\summarize_external_eval.py --input data\experiments\external_eval_<timestamp>.json --output reports\external_eval_report_doubao_live.md
+```
+
+`generate_doubao_external_eval_cases.py` defaults to reading `datasets\demo_external_eval_cases.json` and writing `data\experiments\doubao_external_eval_cases_<timestamp>.json`. Use `--source`, `--output`, and `--run-id` as needed. Point `--dataset` at the JSON written in step 1; set `--input` on the summarizer to the `external_eval_*.json` from step 2 (or omit `--input` to pick the newest `external_eval_*.json` under `data\experiments`).
 
 ## Requirements
 
@@ -126,7 +140,9 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
 
 Use this path when the answer was produced outside this app, for example by another RAG service, an agent workflow, a search pipeline, or a different model provider.
 
-**Multi-model comparison:** each case may include optional metadata `provider`, `model`, and `run_id` (strings). If `provider` or `model` is omitted, the evaluator fills them with `"unknown"` in per-row output; missing `run_id` becomes JSON `null`. Batch responses add `aggregate.by_model`, an object keyed by `"provider/model"` with per-model totals, answerable/unanswerable counts, `refusal_accuracy`, `over_refusal_rate`, `mean_support_rate`, and `mean_hallucination_rate`. These fields are labels only—no remote LLM is invoked.
+**Multi-model comparison:** each case may include optional metadata `provider`, `model`, and `run_id` (strings). If `provider` or `model` is omitted, the evaluator fills them with `"unknown"` in per-row output; missing `run_id` becomes JSON `null`. Batch responses add `aggregate.by_model`, an object keyed by `"provider/model"` with per-model totals, answerable/unanswerable counts, `refusal_accuracy`, `over_refusal_rate`, `mean_support_rate`, and `mean_hallucination_rate`.
+
+**Important:** With fixed samples such as `datasets/demo_external_eval_cases.json`, those fields are usually **placeholder labels** for the evaluator UI and `by_model` tables. The batch endpoint **does not** call remote LLMs from those labels—it only scores the `answer` and `evidence` you submit. Labels are not trustworthy for cross-model ranking unless each `answer` was actually produced under that provider/model (for example after `scripts/generate_doubao_external_eval_cases.py`).
 
 Example case fields:
 
@@ -191,7 +207,7 @@ By default, the newest `external_eval_*.json` under `data/experiments/` (lexicog
 Expected current result:
 
 ```text
-104 passed
+112 passed
 ```
 
 ## Important API Endpoints

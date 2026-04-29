@@ -86,6 +86,16 @@ def test_render_report_markdown_contains_required_sections():
     assert "## 简短结论" in md
 
 
+def test_render_report_markdown_does_not_warn_over_refusal_when_all_zero():
+    record = _sample_record()
+    record["aggregate"]["over_refusal_rate"] = 0.0
+    for block in record["aggregate"]["by_model"].values():
+        block["over_refusal_rate"] = 0.0
+    md = render_report_markdown(record)
+    assert "本批分模型 `over_refusal_rate` 均为 0，未观察到过度拒答" in md
+    assert "更容易保守拒答" not in md
+
+
 def test_write_report_creates_file_and_returns_path(tmp_path):
     out = tmp_path / "nested" / "external_report.md"
     path = write_report("hello", out)

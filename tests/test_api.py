@@ -39,6 +39,34 @@ def test_health(client):
     assert r.json() == {"status": "ok"}
 
 
+def test_api_v1_and_legacy_aliases_are_available(client):
+    legacy = client.get("/api/documents")
+    versioned = client.get("/api/v1/documents")
+    assert legacy.status_code == 200
+    assert versioned.status_code == 200
+    assert legacy.json() == versioned.json() == []
+
+
+def test_openapi_prefers_v1_paths(client):
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = r.json()["paths"]
+    assert "/api/v1/search" in paths
+    assert "/api/search" not in paths
+
+
+def test_api_v1_post_endpoint_works(client):
+    r = client.post(
+        "/api/v1/evaluate/faithfulness",
+        json={
+            "answer": "RAG retrieves evidence before answering.",
+            "citations": [{"text": "RAG retrieves evidence before answering."}],
+        },
+    )
+    assert r.status_code == 200
+    assert "support_rate" in r.json()
+
+
 def test_demo_external_eval_returns_cases_and_min_support_rate(client):
     r = client.get("/api/demo/external-eval")
     assert r.status_code == 200
@@ -72,8 +100,10 @@ def test_dashboard_includes_answer_eval_csv_download(client):
     r = client.get("/")
     assert r.status_code == 200
     html = r.text
+    js = client.get("/static/dashboard.js").text
     assert 'id="download-answer-eval-csv"' in html
-    assert "/api/evaluate/answers/export" in html
+    assert 'apiPath("/evaluate/answers/export")' in js
+    assert 'const API_BASE = "/api/v1"' in js
 
 
 def test_dashboard_includes_experiment_history_controls(client):
@@ -81,13 +111,28 @@ def test_dashboard_includes_experiment_history_controls(client):
     r = client.get("/")
     assert r.status_code == 200
     html = r.text
+    js = client.get("/static/dashboard.js").text
     assert 'id="answer-eval-save"' in html
     assert "save=true" in html
     assert 'id="refresh-experiments"' in html
     assert 'id="experiments-list"' in html
+    assert 'id="experiments-prev"' in html
+    assert 'id="experiments-next"' in html
     assert 'id="experiment-detail-output"' in html
-    assert 'requestJson("/api/experiments")' in html
-    assert "/api/experiments/${encodeURIComponent(runId)}" in html
+    assert "EXPERIMENT_PAGE_SIZE" in js
+    assert "include_total=true" in js
+    assert "apiPath(`/experiments/${encodeURIComponent(runId)}`)" in js
+
+
+def test_dashboard_includes_document_delete_and_model_metadata_warning(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    js = client.get("/static/dashboard.js").text
+    assert "delete-document" in js
+    assert "DELETE" in js
+    assert "window.confirm" in js
+    assert "Demo 数据不代表真实模型排名" in html
 
 
 def test_sample_answer_eval_cases_json_readable():
@@ -114,6 +159,26 @@ def test_upload_valid_pdf(client):
     assert body["page_count"] == 1
     assert "id" in body and "saved_as" in body
     assert body["original_filename"] == "hello.pdf"
+    assert body["duplicate"] is False
+
+
+def test_upload_duplicate_pdf_reuses_existing_document(client, tmp_path):
+    pdf = _minimal_pdf_bytes()
+    r0 = client.post(
+        "/api/documents/upload",
+        files={"file": ("first.pdf", pdf, "application/pdf")},
+    )
+    r1 = client.post(
+        "/api/documents/upload",
+        files={"file": ("second.pdf", pdf, "application/pdf")},
+    )
+    assert r0.status_code == 200
+    assert r1.status_code == 200
+    first = r0.json()
+    second = r1.json()
+    assert second["duplicate"] is True
+    assert second["id"] == first["id"]
+    assert len(list((tmp_path / "documents").glob("*.json"))) == 1
 
 
 def test_upload_rejects_non_pdf_extension(client):
@@ -180,13 +245,15 @@ def test_upload_creates_metadata_json(client, tmp_path):
 
 
 def test_list_documents_after_upload(client):
+    pdf_a = _minimal_pdf_bytes()
+    pdf_b = _minimal_pdf_bytes() + b"\n% distinct test fixture"
     r0 = client.post(
         "/api/documents/upload",
-        files={"file": ("a.pdf", _minimal_pdf_bytes(), "application/pdf")},
+        files={"file": ("a.pdf", pdf_a, "application/pdf")},
     )
     r1 = client.post(
         "/api/documents/upload",
-        files={"file": ("b.pdf", _minimal_pdf_bytes(), "application/pdf")},
+        files={"file": ("b.pdf", pdf_b, "application/pdf")},
     )
     id_a, id_b = r0.json()["id"], r1.json()["id"]
     r = client.get("/api/documents")
@@ -219,14 +286,41 @@ def test_get_document_missing_404(client):
     assert r.status_code == 404
 
 
+def test_delete_document_removes_metadata_and_upload(client, tmp_path):
+    r = client.post(
+        "/api/documents/upload",
+        files={"file": ("delete-me.pdf", _minimal_pdf_bytes(), "application/pdf")},
+    )
+    assert r.status_code == 200
+    doc_id = r.json()["id"]
+    meta_path = tmp_path / "documents" / f"{doc_id}.json"
+    saved_as = r.json()["saved_as"]
+    upload_path = tmp_path / "uploads" / saved_as
+    assert meta_path.is_file()
+    assert upload_path.is_file()
+
+    r2 = client.delete(f"/api/documents/{doc_id}")
+    assert r2.status_code == 200
+    assert r2.json() == {"deleted": True, "id": doc_id}
+    assert not meta_path.exists()
+    assert not upload_path.exists()
+    assert client.get(f"/api/documents/{doc_id}").status_code == 404
+
+
+def test_delete_document_missing_404(client):
+    missing = str(uuid.uuid4())
+    r = client.delete(f"/api/documents/{missing}")
+    assert r.status_code == 404
+
+
 def test_chunk_count_consistent_with_chunks(client, monkeypatch):
     from app import main
 
     known = "x" * 2500
-    monkeypatch.setattr("app.main.extract_text_from_pdf", lambda _b: (known, 1))
+    monkeypatch.setattr("app.main.extract_text_from_pdf_stream", lambda _s: (known, 1))
     r = client.post(
         "/api/documents/upload",
-        files={"file": ("k.pdf", b"fake", "application/pdf")},
+        files={"file": ("k.pdf", b"%PDF-fake", "application/pdf")},
     )
     assert r.status_code == 200
     doc_id = r.json()["id"]
@@ -364,6 +458,56 @@ def test_list_experiments_returns_summaries_newest_first(client, monkeypatch, tm
         assert item["total"] == 1
         assert item["mean_support_rate"] == 1.0
         assert item["mean_hallucination_rate"] == 0.0
+
+
+def test_list_experiments_supports_pagination(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    experiments.mkdir(parents=True)
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    base = _fake_answer_evaluation()
+    run_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for i, run_id in enumerate(run_ids):
+        record = {
+            "run_id": run_id,
+            "created_at": f"2026-01-0{i + 1}T00:00:00Z",
+            **base,
+        }
+        (experiments / f"{run_id}.json").write_text(
+            json.dumps(record, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    r = client.get("/api/experiments", params={"limit": 1, "offset": 1})
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) == 1
+    assert items[0]["run_id"] == run_ids[1]
+
+
+def test_list_experiments_can_include_total_for_dashboard(client, monkeypatch, tmp_path):
+    experiments = tmp_path / "experiments"
+    experiments.mkdir(parents=True)
+    monkeypatch.setattr("app.main.EXPERIMENTS_DIR", experiments)
+    base = _fake_answer_evaluation()
+    run_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for i, run_id in enumerate(run_ids):
+        record = {
+            "run_id": run_id,
+            "created_at": f"2026-01-0{i + 1}T00:00:00Z",
+            **base,
+        }
+        (experiments / f"{run_id}.json").write_text(
+            json.dumps(record, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    r = client.get("/api/v1/experiments", params={"limit": 2, "offset": 1, "include_total": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 3
+    assert body["limit"] == 2
+    assert body["offset"] == 1
+    assert [item["run_id"] for item in body["items"]] == [run_ids[1], run_ids[0]]
 
 
 def test_get_experiment_returns_saved_json(client, monkeypatch, tmp_path):

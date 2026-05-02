@@ -6,9 +6,10 @@ import argparse
 import copy
 import json
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -16,7 +17,6 @@ if str(_ROOT) not in sys.path:
 
 from app.config import get_doubao_settings
 from app.llm_client import generate_doubao_answer
-
 
 DATASET_COMMENT = (
     "Live Doubao-generated answers via generate_doubao_external_eval_cases.py. "

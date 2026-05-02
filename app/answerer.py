@@ -2,49 +2,18 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
+from typing import Any, cast
 
 from app.bm25 import search_documents_bm25
-from app.faithfulness import check_answer_faithfulness
-from app.llm_client import generate_doubao_answer
-from app.search import iter_indexable_chunks, search_documents
+from app.document_index import get_document_index
+from app.faithfulness import check_answer_faithfulness, extract_keywords
+from app.llm_client import LLMConfigurationError, LLMRequestError, generate_doubao_answer
+from app.search import search_documents
 
 VALID_METHODS = {"keyword", "bm25"}
 VALID_GENERATORS = {"extractive", "doubao"}
 REFUSAL_ANSWER = "知识库中没有检索到足够信息，暂时无法回答该问题。"
-
-_TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]", re.IGNORECASE)
-_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "by",
-    "can",
-    "does",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "paper",
-    "set",
-    "step",
-    "the",
-    "this",
-    "to",
-    "uploaded",
-    "what",
-    "with",
-}
 
 
 def retrieve_for_method(documents_dir: Path, question: str, top_k: int, method: str) -> list[dict]:
@@ -55,23 +24,13 @@ def retrieve_for_method(documents_dir: Path, question: str, top_k: int, method: 
     raise ValueError("method must be keyword or bm25")
 
 
-def _content_tokens(text: str) -> set[str]:
-    tokens: set[str] = set()
-    for match in _TOKEN_RE.finditer(text):
-        token = match.group(0).lower()
-        if token.isascii() and (len(token) < 3 or token in _STOPWORDS):
-            continue
-        tokens.add(token)
-    return tokens
-
-
 def evidence_relevance_overlap(
     question: str,
     citations: list[dict],
     evidence_texts: list[str] | None = None,
 ) -> dict:
     """Return query-token coverage by citation previews for refusal gating."""
-    query_tokens = _content_tokens(question)
+    query_tokens = extract_keywords(question)
     if not query_tokens:
         return {"query_terms": [], "matched_terms": [], "overlap_rate": 0.0}
 
@@ -82,7 +41,7 @@ def evidence_relevance_overlap(
             if isinstance(citation, dict)
         ]
     evidence = " ".join(evidence_texts)
-    evidence_tokens = _content_tokens(evidence)
+    evidence_tokens = extract_keywords(evidence)
     matched = sorted(query_tokens & evidence_tokens)
     return {
         "query_terms": sorted(query_tokens),
@@ -92,25 +51,16 @@ def evidence_relevance_overlap(
 
 
 def _load_evidence_texts(documents_dir: Path, citations: list[dict]) -> list[str]:
-    needed = {
-        (citation.get("document_id"), citation.get("chunk_index"))
-        for citation in citations
-        if isinstance(citation, dict)
-    }
-    if not needed:
-        return []
-
-    texts: dict[tuple[str, int], str] = {}
-    for doc_id, _filename, chunk_index, text in iter_indexable_chunks(documents_dir):
-        key = (doc_id, chunk_index)
-        if key in needed:
-            texts[key] = text
-
-    return [
-        texts.get((citation.get("document_id"), citation.get("chunk_index")), "")
-        for citation in citations
-        if isinstance(citation, dict)
-    ]
+    index = get_document_index(documents_dir)
+    evidence_texts: list[str] = []
+    for citation in citations:
+        if not isinstance(citation, dict):
+            continue
+        document_id = citation.get("document_id")
+        chunk_index = citation.get("chunk_index")
+        if isinstance(document_id, str) and isinstance(chunk_index, int):
+            evidence_texts.append(index.text_by_key.get((document_id, chunk_index), ""))
+    return evidence_texts
 
 
 def draft_answer(
@@ -121,6 +71,7 @@ def draft_answer(
     generator: str = "extractive",
     min_support_rate: float | None = None,
     min_relevance_overlap: float | None = None,
+    fallback_to_extractive: bool = True,
 ) -> dict:
     """Return a citation-bearing answer using extractive evidence or Doubao generation."""
     stripped = question.strip()
@@ -169,7 +120,22 @@ def draft_answer(
         return response
 
     if generator == "doubao":
-        answer = generate_doubao_answer(stripped, citations)
+        try:
+            answer = generate_doubao_answer(stripped, citations)
+        except (LLMConfigurationError, LLMRequestError) as exc:
+            if not fallback_to_extractive:
+                raise
+            response = _extractive_response(
+                stripped,
+                method,
+                generator,
+                top_k,
+                citations,
+                relevance,
+            )
+            response["fallback_generator"] = "extractive"
+            response["llm_error"] = str(exc)
+            return _attach_reliability(response, min_support_rate)
         response = {
             "question": stripped,
             "method": method,
@@ -181,14 +147,26 @@ def draft_answer(
         }
         return _attach_reliability(response, min_support_rate)
 
+    response = _extractive_response(stripped, method, generator, top_k, citations, relevance)
+    return _attach_reliability(response, min_support_rate)
+
+
+def _extractive_response(
+    question: str,
+    method: str,
+    generator: str,
+    top_k: int,
+    citations: list[dict],
+    relevance: dict,
+) -> dict:
     evidence_lines = [
         f"[{citation['index']}] {citation['text_preview']}" for citation in citations
     ]
     answer = "根据知识库中检索到的证据，可以参考以下内容：\n" + "\n".join(
         evidence_lines
     )
-    response = {
-        "question": stripped,
+    return {
+        "question": question,
         "method": method,
         "generator": generator,
         "top_k": top_k,
@@ -196,7 +174,6 @@ def draft_answer(
         "citations": citations,
         "relevance": relevance,
     }
-    return _attach_reliability(response, min_support_rate)
 
 
 def _refusal_response(
@@ -216,8 +193,8 @@ def _refusal_response(
     }
     if min_support_rate is not None:
         response["faithfulness"] = check_answer_faithfulness(
-            response["answer"],
-            response["citations"],
+            cast(str, response["answer"]),
+            cast(list[dict[Any, Any]], response["citations"]),
         )
         response["reliable"] = False
         response["reliability_warning"] = "未检索到证据，答案不可靠。"
@@ -228,7 +205,10 @@ def _attach_reliability(response: dict, min_support_rate: float | None) -> dict:
     if min_support_rate is None:
         return response
 
-    faithfulness = check_answer_faithfulness(response["answer"], response["citations"])
+    faithfulness = check_answer_faithfulness(
+        cast(str, response["answer"]),
+        cast(list[dict[Any, Any]], response["citations"]),
+    )
     support_rate = faithfulness["support_rate"]
     reliable = support_rate >= min_support_rate
     response["faithfulness"] = faithfulness

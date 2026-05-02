@@ -23,7 +23,10 @@ This project evaluates whether answers from RAG systems, agents, or external LLM
 
 ```text
 app/                         FastAPI app, retrieval, answer generation, evaluation logic
-app/static/index.html         Browser dashboard
+app/services/                Service layer for documents, experiments, request parsing
+app/static/index.html        Browser dashboard shell
+app/static/dashboard.css     Dashboard styles
+app/static/dashboard.js      Dashboard interactions
 datasets/                     Reproducible evaluation datasets
 docs/                         Workflow notes and thesis-ready experiment writing
 reports/                      Final Markdown experiment reports
@@ -115,23 +118,25 @@ http://127.0.0.1:8000/
 
 ## Basic Usage
 
+Use `/api/v1/...` for new integrations. The older `/api/...` paths are still available as compatibility aliases.
+
 Upload a PDF:
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/documents/upload" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/documents/upload" `
   -F "file=@C:\path\to\paper.pdf"
 ```
 
 Search evidence:
 
 ```powershell
-curl.exe "http://127.0.0.1:8000/api/search?q=Self-RAG%20retrieve%20critique&method=bm25&top_k=3"
+curl.exe "http://127.0.0.1:8000/api/v1/search?q=Self-RAG%20retrieve%20critique&method=bm25&top_k=3"
 ```
 
 Generate a guarded answer:
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/answer" `
   -H "Content-Type: application/json" `
   -d "{\"question\":\"Does this paper explain a quantum chip recipe?\",\"method\":\"bm25\",\"generator\":\"extractive\",\"top_k\":3,\"min_support_rate\":0.5,\"min_relevance_overlap\":0.35}"
 ```
@@ -207,27 +212,46 @@ By default, the newest `external_eval_*.json` under `data/experiments/` (lexicog
 Expected current result:
 
 ```text
-112 passed
+135 passed
+```
+
+Optional development tooling:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m ruff check app scripts tests
+.\.venv\Scripts\python.exe -m mypy app scripts
+```
+
+To run pre-commit, this repo uses local hooks. On Windows, put the project virtualenv first on PATH so hooks do not pick Anaconda or a system Python:
+
+```powershell
+$env:PATH = (Resolve-Path .\.venv\Scripts).Path + ';' + $env:PATH
+.\.venv\Scripts\python.exe -m pre_commit run --all-files
 ```
 
 ## Important API Endpoints
+
+The OpenAPI schema exposes `/api/v1/...`; legacy `/api/...` paths remain as compatibility aliases.
 
 | Endpoint | Method | Purpose |
 |---|---:|---|
 | `/` | GET | Dashboard |
 | `/health` | GET | Health check |
-| `/api/documents/upload` | POST | Upload and index a PDF |
-| `/api/documents` | GET | List indexed documents |
-| `/api/search` | GET | Search indexed chunks |
-| `/api/answer` | POST | Generate citation-bearing answer |
-| `/api/evaluate/faithfulness` | POST | Evaluate answer faithfulness |
-| `/api/evaluate/retrieval` | POST | Evaluate retrieval cases |
-| `/api/evaluate/answers` | POST | Batch answer reliability evaluation |
-| `/api/evaluate/answers/export` | POST | Export answer evaluation CSV |
-| `/api/evaluate/external-answer` | POST | Evaluate one external answer/evidence case |
-| `/api/evaluate/external-answers` | POST | Batch-evaluate external model or agent outputs |
-| `/api/experiments` | GET | List saved experiments |
-| `/api/experiments/{run_id}` | GET | View experiment detail |
+| `/api/v1/documents/upload` | POST | Upload and index a PDF |
+| `/api/v1/documents` | GET | List indexed documents |
+| `/api/v1/documents/{doc_id}` | GET / DELETE | View or delete a document |
+| `/api/v1/search` | GET | Search indexed chunks |
+| `/api/v1/answer` | POST | Generate citation-bearing answer |
+| `/api/v1/evaluate/faithfulness` | POST | Evaluate answer faithfulness |
+| `/api/v1/evaluate/retrieval` | POST | Evaluate retrieval cases |
+| `/api/v1/evaluate/answers` | POST | Batch answer reliability evaluation |
+| `/api/v1/evaluate/answers/export` | POST | Export answer evaluation CSV |
+| `/api/v1/evaluate/external-answer` | POST | Evaluate one external answer/evidence case |
+| `/api/v1/evaluate/external-answers` | POST | Batch-evaluate external model or agent outputs |
+| `/api/v1/demo/external-eval` | GET | Return the built-in external-eval demo dataset |
+| `/api/v1/experiments` | GET | List saved experiments with `limit` / `offset` / `include_total` |
+| `/api/v1/experiments/{run_id}` | GET | View experiment detail |
 
 ## Notes
 

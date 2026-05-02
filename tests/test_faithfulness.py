@@ -17,8 +17,8 @@ def test_extract_keywords_english_and_chinese():
     kws = extract_keywords("RAG uses retrieval evidence 检索证据")
     assert "rag" in kws
     assert "retrieval" in kws
-    assert "检" in kws
-    assert "证" in kws
+    assert "检索" in kws
+    assert "证据" in kws
 
 
 def test_faithfulness_supported_answer():
@@ -40,6 +40,22 @@ def test_faithfulness_flags_unsupported_claim():
     assert result["claim_count"] == 1
     assert result["supported_claim_count"] == 0
     assert result["hallucination_rate"] == 1.0
+    assert result["unsupported_claim_rate"] == 1.0
+    assert result["hallucination_proxy_rate"] == 1.0
+
+
+def test_faithfulness_skips_claims_without_keywords():
+    result = check_answer_faithfulness(
+        "好的。RAG 使用检索证据回答问题。",
+        [{"text_preview": "RAG 是检索增强生成，它使用检索证据回答问题。"}],
+    )
+    assert result["raw_claim_count"] == 2
+    assert result["claim_count"] == 1
+    assert result["skipped_claim_count"] == 1
+    assert result["supported_claim_count"] == 1
+    assert result["claims"][0]["supported"] is None
+    assert result["claims"][0]["skipped"] is True
+    assert result["support_rate"] == 1.0
 
 
 def test_faithfulness_endpoint():

@@ -1,0 +1,267 @@
+:root {
+      color-scheme: light;
+      font-family: "Segoe UI", Arial, "Microsoft YaHei", sans-serif;
+      background: #f6f7f9;
+      color: #20242a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header {
+      border-bottom: 1px solid #d9dee7;
+      background: #ffffff;
+      padding: 18px 28px;
+    }
+    h1 { margin: 0; font-size: 22px; font-weight: 650; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px;
+    }
+    section {
+      background: #ffffff;
+      border: 1px solid #d9dee7;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    h2 { margin: 0 0 12px; font-size: 16px; }
+    label { display: block; margin: 10px 0 6px; font-size: 13px; color: #4b5563; }
+    input, textarea, select, button {
+      width: 100%;
+      font: inherit;
+      border-radius: 6px;
+    }
+    input, textarea, select {
+      border: 1px solid #c9d1dc;
+      padding: 9px 10px;
+      background: #ffffff;
+    }
+    textarea { min-height: 180px; resize: vertical; }
+    button {
+      border: 0;
+      background: #1f6feb;
+      color: white;
+      padding: 9px 12px;
+      margin-top: 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    input[type="checkbox"] {
+      width: auto;
+      margin: 0 8px 0 0;
+      vertical-align: middle;
+    }
+    label.save-row {
+      display: flex;
+      align-items: center;
+      margin: 10px 0 6px;
+    }
+    button.secondary { background: #596579; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .output {
+      min-height: 92px;
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #f2f4f8;
+      white-space: pre-wrap;
+      overflow: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+    .output-error {
+      border: 1px solid #f0b8b8;
+      background: #fff5f5;
+      color: #842029;
+    }
+    .list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .item {
+      border: 1px solid #e0e5ec;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fbfcfe;
+    }
+    .item-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .item-actions button {
+      width: auto;
+      margin-top: 0;
+      padding: 6px 9px;
+      font-size: 12px;
+    }
+    button.danger { background: #b42318; }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+    .experiment-row { cursor: pointer; }
+    .experiment-row:focus { outline: 2px solid #1f6feb; outline-offset: 2px; }
+    .muted { color: #647084; font-size: 13px; }
+    .pager {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .pager button {
+      width: auto;
+      margin-top: 0;
+      padding: 7px 10px;
+    }
+    .search-summary {
+      margin-bottom: 10px;
+      color: #647084;
+    }
+    .search-result-list {
+      display: grid;
+      gap: 10px;
+    }
+    .search-result-card {
+      border: 1px solid #d9dee7;
+      border-radius: 6px;
+      padding: 10px;
+      background: #ffffff;
+    }
+    .search-result-card p {
+      margin: 8px 0 0;
+      line-height: 1.55;
+    }
+    mark.search-hit {
+      border-radius: 3px;
+      padding: 0 2px;
+      background: #ffe58f;
+      color: inherit;
+    }
+    @media (max-width: 880px) {
+      main, .grid { grid-template-columns: 1fr; }
+    }
+    section.external-eval-panel {
+      grid-column: 1 / -1;
+    }
+    .external-metrics {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .external-metrics dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 14px;
+      align-items: baseline;
+    }
+    .external-metrics dt {
+      color: #647084;
+      font-weight: 600;
+    }
+    .external-metrics dd {
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .external-highlights {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #eef3fb;
+      border: 1px solid #d5e3fc;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .external-highlights strong { color: #153e75; }
+    .metric-bars {
+      margin-top: 14px;
+      display: grid;
+      gap: 16px;
+    }
+    .metric-bars h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 650;
+      color: #374151;
+    }
+    .metric-bar-row {
+      display: grid;
+      grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) auto;
+      gap: 8px 12px;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .metric-bar-row label {
+      margin: 0;
+      color: #4b5563;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .metric-bar-track {
+      height: 14px;
+      border-radius: 4px;
+      background: #e8ecf3;
+      overflow: hidden;
+    }
+    .metric-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #4f8cff, #1f6feb);
+      min-width: 2px;
+    }
+    .metric-bar-fill.alt-a { background: linear-gradient(90deg, #34a853, #188038); }
+    .metric-bar-fill.alt-b { background: linear-gradient(90deg, #ea8600, #c25700); }
+    .metric-bar-fill.alt-c { background: linear-gradient(90deg, #ab47bc, #7b1fa2); }
+    .metric-bar-val {
+      font-variant-numeric: tabular-nums;
+      color: #374151;
+      min-width: 4.5em;
+      text-align: right;
+    }
+    table.ev-model-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    table.ev-model-table th,
+    table.ev-model-table td {
+      border: 1px solid #e0e5ec;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    table.ev-model-table th {
+      background: #f2f4f8;
+      font-weight: 650;
+    }
+    .experiment-viz-panel {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #e0e5ec;
+      background: #fbfcfe;
+    }
+    .experiment-viz-panel h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 650;
+      color: #374151;
+    }
+    .experiment-viz-panel h3:not(:first-child) {
+      margin-top: 16px;
+    }
+    .experiment-viz-metric-bars .metric-bar-row {
+      grid-template-columns: minmax(160px, 1fr) minmax(0, 2.5fr) auto;
+    }
+    table.experiment-cases-table td.q-cell {
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }

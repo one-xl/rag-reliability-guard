@@ -6,16 +6,15 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 from app.config import DoubaoSettings
 from scripts.generate_doubao_external_eval_cases import (
     build_live_dataset_payload,
     evidence_to_doubao_citations,
     load_source,
+)
+from scripts.generate_doubao_external_eval_cases import (
     main as script_main,
 )
-
 
 _SAMPLE_SOURCE = {
     "min_support_rate": 0.5,

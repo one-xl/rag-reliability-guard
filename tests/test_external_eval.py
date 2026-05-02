@@ -16,6 +16,8 @@ def test_is_refusal_detects_english_and_chinese_refusals():
     assert is_refusal("I cannot answer because there is not enough information.")
     assert is_refusal("知识库中没有足够信息，暂时无法回答。")
     assert not is_refusal("RAG uses retrieved evidence.")
+    assert not is_refusal("The paper does not have enough information about X.")
+    assert not is_refusal("I don't know if it improves retrieval quality.")
 
 
 def test_evaluate_external_answer_case_supported_answer():
@@ -40,6 +42,8 @@ def test_evaluate_external_answer_case_supported_answer():
     assert row["refused"] is False
     assert row["over_refusal"] is False
     assert row["support_rate"] >= 0.5
+    assert row["unsupported_claim_rate"] <= 0.5
+    assert row["hallucination_proxy_rate"] <= 0.5
     assert row["reliable"] is True
     assert row["model"] == "unknown"
     assert row["provider"] == "unknown"

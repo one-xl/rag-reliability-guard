@@ -18,6 +18,24 @@ def test_overlap_advances_by_chunk_minus_overlap():
     ]
 
 
+def test_paragraph_boundaries_are_preserved_when_possible():
+    text = "第一段说明检索。\n\n第二段说明生成。\n\n第三段说明评测。"
+    assert chunk_text(text, chunk_size=14, overlap=0) == [
+        "第一段说明检索。",
+        "第二段说明生成。",
+        "第三段说明评测。",
+    ]
+
+
+def test_long_paragraph_falls_back_to_fixed_window():
+    text = "intro\n\nabcdefghij"
+    assert chunk_text(text, chunk_size=6, overlap=2) == [
+        "intro",
+        "abcdef",
+        "efghij",
+    ]
+
+
 def test_empty_text_returns_empty_list():
     assert chunk_text("", chunk_size=10, overlap=0) == []
 

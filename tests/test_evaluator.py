@@ -1,8 +1,8 @@
 """检索评测模块与接口测试。"""
 
+import csv
 import json
 import uuid
-import csv
 from io import StringIO
 from pathlib import Path
 
@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.evaluator import answer_evaluation_to_csv, evaluate_answer_cases, evaluate_retrieval
+from app.llm_client import LLMRequestError
 from app.main import app
 
 
@@ -215,6 +216,76 @@ def test_evaluate_answer_cases_unanswerable_refusal_by_relevance_gate(tmp_path):
     assert out["min_relevance_overlap"] == 0.4
 
 
+def test_evaluate_answer_cases_counts_refusal_even_with_citations(tmp_path, monkeypatch):
+    def fake_draft_answer(*_args, **_kwargs):
+        return {
+            "answer": "I cannot answer because there is not enough information.",
+            "citations": [{"document_id": "d", "chunk_index": 0, "text_preview": "context"}],
+            "faithfulness": {
+                "support_rate": 0.0,
+                "hallucination_rate": 1.0,
+                "unsupported_claim_rate": 1.0,
+                "hallucination_proxy_rate": 1.0,
+            },
+        }
+
+    monkeypatch.setattr("app.evaluator.draft_answer", fake_draft_answer)
+    out = evaluate_answer_cases(
+        [{"question": "private key?", "answerable": False}],
+        tmp_path / "documents",
+    )
+    row = out["rows"][0]
+    assert row["retrieved_citation_count"] == 1
+    assert row["refusal_correct"] is True
+    assert out["aggregate"]["refusal_accuracy"] == 1.0
+
+
+def test_evaluate_answer_cases_continue_on_error_records_failed_row(tmp_path, monkeypatch):
+    def fake_draft_answer(*_args, **_kwargs):
+        raise LLMRequestError("upstream timeout")
+
+    monkeypatch.setattr("app.evaluator.draft_answer", fake_draft_answer)
+    out = evaluate_answer_cases(
+        [
+            {
+                "question": "alpha",
+                "answerable": True,
+                "expected_document_id": "doc-1",
+            }
+        ],
+        tmp_path / "documents",
+        generator="doubao",
+        min_support_rate=0.5,
+        continue_on_error=True,
+    )
+    row = out["rows"][0]
+    assert row["error"] == "upstream timeout"
+    assert row["reliable"] is False
+    assert row["hit"] is False
+    assert out["continue_on_error"] is True
+    assert out["aggregate"]["error_count"] == 1
+    assert out["aggregate"]["answerable_total"] == 1
+
+
+def test_evaluate_answer_cases_raises_without_continue_on_error(tmp_path, monkeypatch):
+    def fake_draft_answer(*_args, **_kwargs):
+        raise LLMRequestError("upstream timeout")
+
+    monkeypatch.setattr("app.evaluator.draft_answer", fake_draft_answer)
+    with pytest.raises(LLMRequestError):
+        evaluate_answer_cases(
+            [
+                {
+                    "question": "alpha",
+                    "answerable": True,
+                    "expected_document_id": "doc-1",
+                }
+            ],
+            tmp_path / "documents",
+            generator="doubao",
+        )
+
+
 def test_evaluate_answer_cases_aggregate_counts(tmp_path):
     doc_id = str(uuid.uuid4())
     docs = tmp_path / "documents"
@@ -323,6 +394,18 @@ def test_evaluate_answers_endpoint_invalid_payload(client):
         json={"cases": [], "min_relevance_overlap": "high"},
     )
     assert r7.status_code == 400
+
+    r8 = client.post(
+        "/api/evaluate/answers",
+        json={"cases": [], "min_support_rate": 1.5},
+    )
+    assert r8.status_code == 400
+
+    r9 = client.post(
+        "/api/evaluate/answers",
+        json={"cases": [], "continue_on_error": "yes"},
+    )
+    assert r9.status_code == 400
 
 
 def test_answer_evaluation_to_csv():

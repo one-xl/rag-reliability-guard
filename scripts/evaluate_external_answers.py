@@ -11,7 +11,6 @@ from typing import Any
 
 import httpx
 
-
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_DATASET = Path("datasets/sample_external_answer_eval_cases.json")
 DEFAULT_OUTPUT_DIR = Path("data/experiments")

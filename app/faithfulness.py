@@ -4,20 +4,26 @@ from __future__ import annotations
 
 import re
 
-
 _ASCII_TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
-_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
 _SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
-_STOPWORDS = {
+CONTENT_STOPWORDS = {
     "the",
     "a",
     "an",
+    "as",
+    "at",
+    "be",
+    "by",
+    "can",
+    "does",
     "is",
     "are",
     "of",
     "to",
     "and",
     "or",
+    "from",
     "in",
     "on",
     "for",
@@ -25,6 +31,20 @@ _STOPWORDS = {
     "it",
     "this",
     "that",
+    "what",
+    "how",
+    "paper",
+    "model",
+    "system",
+    "question",
+    "dataset",
+    "method",
+    "based",
+    "using",
+    "according",
+    "uploaded",
+    "set",
+    "step",
     "是",
     "的",
     "了",
@@ -38,6 +58,19 @@ _STOPWORDS = {
     "由",
     "可以",
     "一个",
+    "使用",
+    "基于",
+    "根据",
+    "问题",
+    "论文",
+    "模型",
+    "系统",
+    "数据",
+    "方法",
+    "好的",
+    "以下",
+    "下面",
+    "结论",
 }
 
 
@@ -47,14 +80,19 @@ def split_claims(answer: str) -> list[str]:
 
 
 def extract_keywords(text: str) -> set[str]:
-    """Extract conservative English words and Han characters for support matching."""
+    """Extract conservative English words and CJK bigrams for support matching."""
     keywords: set[str] = set()
     for token in _ASCII_TOKEN_RE.findall(text.lower()):
-        if len(token) >= 2 and token not in _STOPWORDS:
+        if len(token) >= 2 and token not in CONTENT_STOPWORDS:
             keywords.add(token)
-    for token in _CJK_RE.findall(text):
-        if token not in _STOPWORDS:
-            keywords.add(token)
+    for match in _CJK_RUN_RE.finditer(text):
+        run = match.group(0)
+        if len(run) < 2:
+            continue
+        for i in range(len(run) - 1):
+            token = run[i : i + 2]
+            if token not in CONTENT_STOPWORDS:
+                keywords.add(token)
     return keywords
 
 
@@ -78,28 +116,37 @@ def check_answer_faithfulness(answer: str, citations: list[dict]) -> dict:
     for claim in claims:
         claim_keywords = extract_keywords(claim)
         if not claim_keywords:
-            supported = bool(citations)
             overlap: list[str] = []
+            supported: bool | None = None
+            skipped = True
         else:
             overlap_set = claim_keywords & evidence_keywords
             supported = len(overlap_set) / len(claim_keywords) >= 0.5
             overlap = sorted(overlap_set)
+            skipped = False
         results.append(
             {
                 "claim": claim,
                 "supported": supported,
+                "skipped": skipped,
                 "keywords": sorted(claim_keywords),
                 "matched_keywords": overlap,
             }
         )
 
-    supported_count = sum(1 for item in results if item["supported"])
-    total = len(results)
+    supported_count = sum(1 for item in results if item["supported"] is True)
+    skipped_count = sum(1 for item in results if item["skipped"])
+    total = len(results) - skipped_count
     support_rate = supported_count / total if total else 0.0
+    unsupported_claim_rate = 1.0 - support_rate if total else 0.0
     return {
         "claim_count": total,
+        "raw_claim_count": len(results),
+        "skipped_claim_count": skipped_count,
         "supported_claim_count": supported_count,
         "support_rate": support_rate,
-        "hallucination_rate": 1.0 - support_rate if total else 0.0,
+        "unsupported_claim_rate": unsupported_claim_rate,
+        "hallucination_proxy_rate": unsupported_claim_rate,
+        "hallucination_rate": unsupported_claim_rate,
         "claims": results,
     }

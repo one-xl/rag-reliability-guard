@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.answerer import draft_answer
+from app.llm_client import LLMRequestError
 from app.main import app
 
 
@@ -136,6 +137,12 @@ def test_answer_rejects_invalid_min_support_rate(client):
     assert r.status_code == 400
     assert "min_support_rate" in r.json()["detail"]
 
+    r2 = client.post(
+        "/api/answer",
+        json={"question": "x", "min_support_rate": 1.2},
+    )
+    assert r2.status_code == 400
+
 
 def test_answer_rejects_invalid_min_relevance_overlap(client):
     r = client.post(
@@ -144,6 +151,12 @@ def test_answer_rejects_invalid_min_relevance_overlap(client):
     )
     assert r.status_code == 400
     assert "min_relevance_overlap" in r.json()["detail"]
+
+    r2 = client.post(
+        "/api/answer",
+        json={"question": "x", "min_relevance_overlap": -0.1},
+    )
+    assert r2.status_code == 400
 
 
 def test_answer_doubao_generator_uses_citations(client, tmp_path, monkeypatch):
@@ -170,6 +183,54 @@ def test_answer_doubao_generator_uses_citations(client, tmp_path, monkeypatch):
     assert body["generator"] == "doubao"
     assert body["answer"] == "豆包生成答案 [1]"
     assert body["citations"][0]["document_id"] == doc_id
+
+
+def test_answer_doubao_falls_back_to_extractive(client, tmp_path, monkeypatch):
+    doc_id = str(uuid.uuid4())
+    _write_metadata(
+        tmp_path / "documents",
+        doc_id,
+        "doubao.pdf",
+        [(0, "RAG needs cited evidence")],
+    )
+
+    def fake_generate(_question, _citations):
+        raise LLMRequestError("temporary upstream failure")
+
+    monkeypatch.setattr("app.answerer.generate_doubao_answer", fake_generate)
+    r = client.post(
+        "/api/answer",
+        json={"question": "evidence", "generator": "doubao", "min_support_rate": 0.0},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["generator"] == "doubao"
+    assert body["fallback_generator"] == "extractive"
+    assert "temporary upstream failure" in body["llm_error"]
+    assert "[1]" in body["answer"]
+
+
+def test_answer_doubao_strict_mode_returns_error(client, tmp_path, monkeypatch):
+    _write_metadata(
+        tmp_path / "documents",
+        str(uuid.uuid4()),
+        "doubao.pdf",
+        [(0, "RAG needs cited evidence")],
+    )
+
+    def fake_generate(_question, _citations):
+        raise LLMRequestError("temporary upstream failure")
+
+    monkeypatch.setattr("app.answerer.generate_doubao_answer", fake_generate)
+    r = client.post(
+        "/api/answer",
+        json={
+            "question": "evidence",
+            "generator": "doubao",
+            "fallback_to_extractive": False,
+        },
+    )
+    assert r.status_code == 502
 
 
 def test_answer_rejects_empty_question(client):

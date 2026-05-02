@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python -m ruff check app scripts tests
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: mypy
+        name: mypy app scripts
+        entry: python -m mypy app scripts
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: dashboard-js-syntax
+        name: dashboard JavaScript syntax
+        entry: node --check app/static/dashboard.js
+        language: system
+        pass_filenames: false
+        files: ^app/static/dashboard\.js$

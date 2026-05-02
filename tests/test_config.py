@@ -1,6 +1,5 @@
 """配置读取测试。"""
 
-from pathlib import Path
 
 from app.config import get_doubao_settings, load_dotenv
 
@@ -43,6 +42,26 @@ def test_load_dotenv_reads_local_values(monkeypatch, tmp_path):
     assert settings.model == "test_model"
     assert settings.timeout_seconds == 12.5
     assert settings.is_configured
+
+
+def test_load_dotenv_supports_export_quotes_and_inline_comments(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "export DOUBAO_API_KEY='quoted key' # keep comment out",
+                'DOUBAO_MODEL="model with spaces"',
+                "DOUBAO_BASE_URL=https://example.test/api/v3 # inline comment",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for key in ("DOUBAO_API_KEY", "DOUBAO_MODEL", "DOUBAO_BASE_URL"):
+        monkeypatch.delenv(key, raising=False)
+    load_dotenv(env_file)
+    assert get_doubao_settings().api_key == "quoted key"
+    assert get_doubao_settings().model == "model with spaces"
+    assert get_doubao_settings().base_url == "https://example.test/api/v3"
 
 
 def test_placeholder_settings_are_not_configured(monkeypatch):

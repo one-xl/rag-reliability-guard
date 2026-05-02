@@ -23,7 +23,10 @@
 
 ```text
 app/                         FastAPI 应用、检索、答案生成、评测逻辑
-app/static/index.html         浏览器 dashboard
+app/services/                文档、实验记录、请求解析等服务层
+app/static/index.html        浏览器 dashboard 页面结构
+app/static/dashboard.css     dashboard 样式
+app/static/dashboard.js      dashboard 交互逻辑
 datasets/                     可复现实验数据集
 docs/                         协作流程、提交清单、论文实验小节
 reports/                      Markdown 实验报告
@@ -158,12 +161,14 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ## 基础使用
 
+推荐使用 `/api/v1/...` 版本化接口；旧的 `/api/...` 路径仍保留为兼容别名。
+
 ### 1. 上传 PDF
 
 可以在 dashboard 上传，也可以调用接口：
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/documents/upload" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/documents/upload" `
   -F "file=@C:\path\to\paper.pdf"
 ```
 
@@ -172,7 +177,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/documents/upload" `
 ### 2. 检索证据
 
 ```powershell
-curl.exe "http://127.0.0.1:8000/api/search?q=Self-RAG%20retrieve%20critique&method=bm25&top_k=3"
+curl.exe "http://127.0.0.1:8000/api/v1/search?q=Self-RAG%20retrieve%20critique&method=bm25&top_k=3"
 ```
 
 支持两种检索方式：
@@ -185,7 +190,7 @@ curl.exe "http://127.0.0.1:8000/api/search?q=Self-RAG%20retrieve%20critique&meth
 抽取式答案：
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/answer" `
   -H "Content-Type: application/json" `
   -d "{\"question\":\"Self-RAG retrieve generate critique\",\"method\":\"bm25\",\"generator\":\"extractive\",\"top_k\":3}"
 ```
@@ -193,7 +198,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
 开启幻觉抑制阈值：
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/answer" `
   -H "Content-Type: application/json" `
   -d "{\"question\":\"Does this paper explain a quantum chip recipe?\",\"method\":\"bm25\",\"generator\":\"extractive\",\"top_k\":3,\"min_support_rate\":0.5,\"min_relevance_overlap\":0.35}"
 ```
@@ -257,7 +262,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/answer" `
 单条评测：
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answer" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/evaluate/external-answer" `
   -H "Content-Type: application/json" `
   -d "{\"question\":\"What does RAG use?\",\"answerable\":true,\"answer\":\"RAG uses retrieved evidence.\",\"evidence\":[{\"text\":\"RAG uses retrieved evidence.\"}],\"min_support_rate\":0.5}"
 ```
@@ -265,7 +270,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answer" `
 批量评测：
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/api/evaluate/external-answers" `
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/evaluate/external-answers" `
   -H "Content-Type: application/json" `
   -d "@datasets/sample_external_answer_eval_cases.json"
 ```
@@ -365,7 +370,22 @@ data/experiments/comparison_<timestamp>.csv
 当前预期结果：
 
 ```text
-112 passed
+135 passed
+```
+
+开发质量工具可选安装：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m ruff check app scripts tests
+.\.venv\Scripts\python.exe -m mypy app scripts
+```
+
+若要运行 pre-commit，本项目使用本地 hook；Windows 下建议先把项目虚拟环境放到 PATH 前面，避免误用 Anaconda 或系统 Python：
+
+```powershell
+$env:PATH = (Resolve-Path .\.venv\Scripts).Path + ';' + $env:PATH
+.\.venv\Scripts\python.exe -m pre_commit run --all-files
 ```
 
 常用子集测试：
@@ -381,22 +401,26 @@ data/experiments/comparison_<timestamp>.csv
 
 ## API 列表
 
+OpenAPI schema 仅暴露 `/api/v1/...`；旧 `/api/...` 路径保留为兼容别名。
+
 | 接口 | 方法 | 用途 |
 |---|---:|---|
 | `/` | GET | Dashboard |
 | `/health` | GET | 健康检查 |
-| `/api/documents/upload` | POST | 上传并索引 PDF |
-| `/api/documents` | GET | 列出已索引文档 |
-| `/api/search` | GET | 检索文档片段 |
-| `/api/answer` | POST | 生成带引用答案 |
-| `/api/evaluate/faithfulness` | POST | 评估答案证据支持情况 |
-| `/api/evaluate/retrieval` | POST | 评估检索用例 |
-| `/api/evaluate/answers` | POST | 批量评估内置 RAG 答案 |
-| `/api/evaluate/answers/export` | POST | 导出答案评测 CSV |
-| `/api/evaluate/external-answer` | POST | 评估单条外部 answer/evidence |
-| `/api/evaluate/external-answers` | POST | 批量评估外部模型或 Agent 输出 |
-| `/api/experiments` | GET | 列出实验记录 |
-| `/api/experiments/{run_id}` | GET | 查看实验详情 |
+| `/api/v1/documents/upload` | POST | 上传并索引 PDF |
+| `/api/v1/documents` | GET | 列出已索引文档 |
+| `/api/v1/documents/{doc_id}` | GET / DELETE | 查看或删除文档 |
+| `/api/v1/search` | GET | 检索文档片段 |
+| `/api/v1/answer` | POST | 生成带引用答案 |
+| `/api/v1/evaluate/faithfulness` | POST | 评估答案证据支持情况 |
+| `/api/v1/evaluate/retrieval` | POST | 评估检索用例 |
+| `/api/v1/evaluate/answers` | POST | 批量评估内置 RAG 答案 |
+| `/api/v1/evaluate/answers/export` | POST | 导出答案评测 CSV |
+| `/api/v1/evaluate/external-answer` | POST | 评估单条外部 answer/evidence |
+| `/api/v1/evaluate/external-answers` | POST | 批量评估外部模型或 Agent 输出 |
+| `/api/v1/demo/external-eval` | GET | 返回内置外部评测 Demo 数据 |
+| `/api/v1/experiments` | GET | 列出实验记录，支持 `limit` / `offset` / `include_total` |
+| `/api/v1/experiments/{run_id}` | GET | 查看实验详情 |
 
 ## 提交与忽略规则
 

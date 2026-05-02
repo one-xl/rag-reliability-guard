@@ -1,34 +1,52 @@
-import json
 import logging
-import re
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
+from app.config import PROJECT_ROOT
 from app.evaluator import answer_evaluation_to_csv, evaluate_answer_cases, evaluate_retrieval
 from app.external_eval import evaluate_external_answer_case, evaluate_external_answer_cases
 from app.faithfulness import check_answer_faithfulness
 from app.llm_client import LLMConfigurationError, LLMRequestError
-from app.pdf_loader import extract_text_from_pdf
+from app.logging_config import configure_logging
+from app.pdf_loader import extract_text_from_pdf_stream
+from app.schemas import (
+    AnswerEvaluationRequest,
+    AnswerRequest,
+    ExternalAnswerBatchRequest,
+    ExternalAnswerRequest,
+)
 from app.search import search_documents
-from app.text_chunker import chunk_text
+from app.services.demo_data import load_demo_external_eval
+from app.services.documents import (
+    delete_document_files,
+    get_document_metadata,
+    list_document_summaries,
+    process_pdf_upload,
+)
+from app.services.evaluation import evaluate_answers_payload
+from app.services.experiments import (
+    get_answer_experiment,
+    list_answer_experiment_page,
+    list_answer_experiments,
+    persist_answer_experiment,
+)
+from app.services.requests import parse_request
 
+configure_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RAG 毕设 API", version="0.1.0")
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
-DOCUMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "documents"
-EXPERIMENTS_DIR = Path(__file__).resolve().parent.parent / "data" / "experiments"
+DATA_DIR = PROJECT_ROOT / "data" / "uploads"
+DOCUMENTS_DIR = PROJECT_ROOT / "data" / "documents"
+EXPERIMENTS_DIR = PROJECT_ROOT / "data" / "experiments"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DEMO_EXTERNAL_EVAL_PATH = (
-    Path(__file__).resolve().parent.parent / "datasets" / "demo_external_eval_cases.json"
-)
+DEMO_EXTERNAL_EVAL_PATH = PROJECT_ROOT / "datasets" / "demo_external_eval_cases.json"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 PREVIEW_CHARS = 800
@@ -36,11 +54,31 @@ PREVIEW_CHARS = 800
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 150
 
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-def _safe_stem(name: str) -> str:
-    base = Path(name).name
-    base = re.sub(r"[^\w\u4e00-\u9fff.\-]", "_", base, flags=re.UNICODE)
-    return base[:180] if len(base) > 180 else base
+
+def versioned_api_route(path: str, *, methods: list[str], **kwargs):
+    """Register /api/v1 routes while keeping /api as a compatibility alias."""
+
+    def decorator(func):
+        app.api_route(f"/api{path}", methods=methods, include_in_schema=False, **kwargs)(func)
+        app.api_route(f"/api/v1{path}", methods=methods, **kwargs)(func)
+        return func
+
+    return decorator
+
+
+def api_get(path: str, **kwargs):
+    return versioned_api_route(path, methods=["GET"], **kwargs)
+
+
+def api_post(path: str, **kwargs):
+    return versioned_api_route(path, methods=["POST"], **kwargs)
+
+
+def api_delete(path: str, **kwargs):
+    return versioned_api_route(path, methods=["DELETE"], **kwargs)
+
 
 
 @app.get("/health")
@@ -48,32 +86,18 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/api/demo/external-eval")
+@api_get("/demo/external-eval")
 def api_demo_external_eval():
     """Return built-in external-eval demo JSON (read-only)."""
-    path = DEMO_EXTERNAL_EVAL_PATH
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="内置评测 Demo 数据不可用")
-    try:
-        raw_text = path.read_text(encoding="utf-8")
-        data = json.loads(raw_text)
-    except (OSError, json.JSONDecodeError):
-        logger.exception("读取内置外部评测 Demo 失败")
-        raise HTTPException(
-            status_code=503,
-            detail="内置评测 Demo 数据不可用",
-        ) from None
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=503, detail="内置评测 Demo 数据不可用")
-    return data
+    return load_demo_external_eval(DEMO_EXTERNAL_EVAL_PATH, logger=logger)
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def dashboard():
-    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return FileResponse(STATIC_DIR / "index.html", media_type="text/html; charset=utf-8")
 
 
-@app.get("/api/search")
+@api_get("/search")
 def api_search(
     q: str | None = Query(None),
     top_k: int = Query(5, ge=1, le=20),
@@ -99,13 +123,15 @@ def api_search(
     }
 
 
-@app.post("/api/evaluate/retrieval")
+@api_post("/evaluate/retrieval")
 def api_evaluate_retrieval(
     payload: dict = Body(...),
     top_k: int | None = Query(None, ge=1, le=20),
 ):
     """Evaluate current retrieval results against small benchmark cases."""
     cases = payload.get("cases")
+    if not isinstance(cases, list):
+        raise HTTPException(status_code=400, detail="cases 必须是列表")
     body_top_k = payload.get("top_k", 5)
     effective_top_k = top_k if top_k is not None else body_top_k
     if not isinstance(effective_top_k, int) or not 1 <= effective_top_k <= 20:
@@ -117,223 +143,84 @@ def api_evaluate_retrieval(
     return {"top_k": effective_top_k, **metrics}
 
 
-def _persist_answer_experiment(evaluation: dict) -> tuple[str, dict[str, str]]:
-    """Write evaluation JSON and CSV under EXPERIMENTS_DIR; return run_id and relative paths."""
-    EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
-    run_id = str(uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    record = {"run_id": run_id, "created_at": created_at, **evaluation}
-    json_path = EXPERIMENTS_DIR / f"{run_id}.json"
-    csv_path = EXPERIMENTS_DIR / f"{run_id}.csv"
-    json_path.write_text(
-        json.dumps(record, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    csv_text = answer_evaluation_to_csv(evaluation)
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        f.write(csv_text)
-    rel_json = f"data/experiments/{run_id}.json"
-    rel_csv = f"data/experiments/{run_id}.csv"
-    return run_id, {"json": rel_json, "csv": rel_csv}
-
-
-@app.post("/api/evaluate/answers")
+@api_post("/evaluate/answers")
 def api_evaluate_answers(payload: dict = Body(...)):
     """Batch-run draft_answer over benchmark cases for thesis experiments."""
-    save = payload.get("save") is True
-    evaluation = _evaluate_answers_payload(payload)
-    if not save:
+    request = parse_request(AnswerEvaluationRequest, payload)
+    evaluation = evaluate_answers_payload(request, DOCUMENTS_DIR, evaluate_answer_cases)
+    if not request.save:
         return evaluation
-    run_id, saved_paths = _persist_answer_experiment(evaluation)
+    run_id, saved_paths = persist_answer_experiment(evaluation, EXPERIMENTS_DIR)
     return {**evaluation, "run_id": run_id, "saved_paths": saved_paths}
 
 
-@app.post("/api/evaluate/answers/export")
+@api_post("/evaluate/answers/export")
 def api_evaluate_answers_export(payload: dict = Body(...)):
     """Export per-case answer evaluation rows as CSV for thesis tables."""
-    evaluation = _evaluate_answers_payload(payload)
+    request = parse_request(AnswerEvaluationRequest, payload)
+    evaluation = evaluate_answers_payload(request, DOCUMENTS_DIR, evaluate_answer_cases)
     csv_text = answer_evaluation_to_csv(evaluation)
     headers = {"Content-Disposition": 'attachment; filename="answer_evaluation.csv"'}
     return Response(content=csv_text, media_type="text/csv; charset=utf-8", headers=headers)
 
 
-@app.post("/api/evaluate/external-answer")
+@api_post("/evaluate/external-answer")
 def api_evaluate_external_answer(payload: dict = Body(...)):
     """Evaluate one externally generated answer with externally supplied evidence."""
-    min_support_rate = payload.get("min_support_rate")
-    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
-        raise HTTPException(status_code=400, detail="min_support_rate must be a number")
+    request = parse_request(ExternalAnswerRequest, payload)
+    case = request.model_dump(exclude={"min_support_rate"}, exclude_none=True)
     try:
         return evaluate_external_answer_case(
-            payload,
-            min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
+            case,
+            min_support_rate=request.min_support_rate,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/evaluate/external-answers")
+@api_post("/evaluate/external-answers")
 def api_evaluate_external_answers(payload: dict = Body(...)):
     """Batch-evaluate external answer/evidence cases for model-agnostic RAG guardrails."""
-    cases = payload.get("cases")
-    min_support_rate = payload.get("min_support_rate")
-    if not isinstance(cases, list):
-        raise HTTPException(status_code=400, detail="cases must be a list")
-    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
-        raise HTTPException(status_code=400, detail="min_support_rate must be a number")
+    request = parse_request(ExternalAnswerBatchRequest, payload)
     try:
         return evaluate_external_answer_cases(
-            cases,
-            min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
+            request.cases,
+            min_support_rate=request.min_support_rate,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _evaluate_answers_payload(payload: dict) -> dict:
-    cases = payload.get("cases")
-    if not isinstance(cases, list):
-        raise HTTPException(status_code=400, detail="cases 必须是列表")
-
-    top_k = payload.get("top_k", 5)
-    if not isinstance(top_k, int) or not 1 <= top_k <= 20:
-        raise HTTPException(status_code=400, detail="top_k 必须在 1 到 20 之间")
-
-    method = payload.get("method", "keyword")
-    if method not in ("keyword", "bm25"):
-        raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
-
-    generator = payload.get("generator", "extractive")
-    if generator not in ("extractive", "doubao"):
-        raise HTTPException(status_code=400, detail="generator 必须是 extractive 或 doubao")
-
-    min_support_rate = payload.get("min_support_rate")
-    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
-        raise HTTPException(status_code=400, detail="min_support_rate 必须是数字")
-    if isinstance(min_support_rate, (int, float)) and not 0.0 <= float(min_support_rate) <= 1.0:
-        raise HTTPException(status_code=400, detail="min_support_rate 必须在 0 到 1 之间")
-
-    min_relevance_overlap = payload.get("min_relevance_overlap")
-    if min_relevance_overlap is not None and not isinstance(min_relevance_overlap, (int, float)):
-        raise HTTPException(status_code=400, detail="min_relevance_overlap 必须是数字")
-    if (
-        isinstance(min_relevance_overlap, (int, float))
-        and not 0.0 <= float(min_relevance_overlap) <= 1.0
-    ):
-        raise HTTPException(status_code=400, detail="min_relevance_overlap 必须在 0 到 1 之间")
-
-    try:
-        return evaluate_answer_cases(
-            cases,
-            DOCUMENTS_DIR,
-            method=method,
-            generator=generator,
-            top_k=top_k,
-            min_support_rate=float(min_support_rate) if min_support_rate is not None else None,
-            min_relevance_overlap=(
-                float(min_relevance_overlap) if min_relevance_overlap is not None else None
-            ),
-        )
-    except LLMConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except LLMRequestError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/api/experiments")
-def list_experiments():
+@api_get("/experiments")
+def list_experiments(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    include_total: bool = Query(False),
+):
     """List persisted answer-evaluation runs (newest first by created_at)."""
-    if not EXPERIMENTS_DIR.is_dir():
-        return []
-    summaries: list[dict] = []
-    for path in EXPERIMENTS_DIR.glob("*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        run_id = data.get("run_id")
-        if not isinstance(run_id, str):
-            continue
-        agg = data.get("aggregate")
-        if not isinstance(agg, dict):
-            continue
-        summaries.append(
-            {
-                "run_id": run_id,
-                "created_at": data.get("created_at"),
-                "method": data.get("method"),
-                "generator": data.get("generator"),
-                "top_k": data.get("top_k"),
-                "total": agg.get("total"),
-                "mean_support_rate": agg.get("mean_support_rate"),
-                "mean_hallucination_rate": agg.get("mean_hallucination_rate"),
-            }
-        )
-
-    def _sort_key(item: dict):
-        ts = item.get("created_at")
-        return ts if isinstance(ts, str) else ""
-
-    summaries.sort(key=_sort_key, reverse=True)
-    return summaries
+    if include_total:
+        return list_answer_experiment_page(EXPERIMENTS_DIR, limit=limit, offset=offset)
+    return list_answer_experiments(EXPERIMENTS_DIR, limit=limit, offset=offset)
 
 
-@app.get("/api/experiments/{run_id}")
+@api_get("/experiments/{run_id}")
 def get_experiment(run_id: str):
-    try:
-        uuid.UUID(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="未找到该实验") from exc
-    path = EXPERIMENTS_DIR / f"{run_id}.json"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="未找到该实验")
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.exception("读取实验 JSON 失败")
-        raise HTTPException(
-            status_code=500,
-            detail="实验数据已损坏，无法读取",
-        ) from exc
+    return get_answer_experiment(run_id, EXPERIMENTS_DIR, logger=logger)
 
 
-@app.post("/api/answer")
+@api_post("/answer")
 def api_answer(payload: dict = Body(...)):
-    question = payload.get("question")
-    if not isinstance(question, str) or not question.strip():
-        raise HTTPException(status_code=400, detail="question 不能为空")
-
-    top_k = payload.get("top_k", 5)
-    if not isinstance(top_k, int) or not 1 <= top_k <= 20:
-        raise HTTPException(status_code=400, detail="top_k 必须在 1 到 20 之间")
-
-    method = payload.get("method", "keyword")
-    if method not in ("keyword", "bm25"):
-        raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
-
-    generator = payload.get("generator", "extractive")
-    if generator not in ("extractive", "doubao"):
-        raise HTTPException(status_code=400, detail="generator 必须是 extractive 或 doubao")
-
-    min_support_rate = payload.get("min_support_rate")
-    if min_support_rate is not None and not isinstance(min_support_rate, (int, float)):
-        raise HTTPException(status_code=400, detail="min_support_rate 必须是数字")
-
-    min_relevance_overlap = payload.get("min_relevance_overlap")
-    if min_relevance_overlap is not None and not isinstance(min_relevance_overlap, (int, float)):
-        raise HTTPException(status_code=400, detail="min_relevance_overlap 必须是数字")
-
+    request = parse_request(AnswerRequest, payload)
     try:
         return draft_answer(
-            question,
+            request.question,
             DOCUMENTS_DIR,
-            top_k=top_k,
-            method=method,
-            generator=generator,
-            min_support_rate=min_support_rate,
-            min_relevance_overlap=min_relevance_overlap,
+            top_k=request.top_k,
+            method=request.method,
+            generator=request.generator,
+            min_support_rate=request.min_support_rate,
+            min_relevance_overlap=request.min_relevance_overlap,
+            fallback_to_extractive=request.fallback_to_extractive,
         )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -343,7 +230,7 @@ def api_answer(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/evaluate/faithfulness")
+@api_post("/evaluate/faithfulness")
 def api_evaluate_faithfulness(payload: dict = Body(...)):
     answer = payload.get("answer")
     citations = payload.get("citations")
@@ -354,115 +241,36 @@ def api_evaluate_faithfulness(payload: dict = Body(...)):
     return check_answer_faithfulness(answer, citations)
 
 
-@app.post("/api/documents/upload")
+@api_post("/documents/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     """
     接收单个 PDF 文件，保存到 data/uploads，并返回页数、字数与正文预览。
     以原始文件名为准：须以 .pdf 结尾（不校验 Content-Type）。
     """
-    filename = file.filename or "upload.pdf"
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
-
-    chunks: list[bytes] = []
-    total_bytes = 0
-    while chunk := await file.read(UPLOAD_CHUNK_BYTES):
-        total_bytes += len(chunk)
-        if total_bytes > MAX_UPLOAD_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"文件过大，上限 {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
-            )
-        chunks.append(chunk)
-
-    raw = b"".join(chunks)
-    if len(raw) == 0:
-        raise HTTPException(status_code=400, detail="空文件")
-
-    try:
-        text, page_count = extract_text_from_pdf(raw)
-    except Exception:
-        logger.exception("PDF 解析失败")
-        raise HTTPException(
-            status_code=422,
-            detail="无法解析该 PDF，请确认文件未损坏且为有效 PDF",
-        ) from None
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    doc_id = str(uuid.uuid4())
-    stem = _safe_stem(filename)
-    saved_name = f"{doc_id}_{stem}"
-    if not saved_name.lower().endswith(".pdf"):
-        saved_name += ".pdf"
-    out_path = DATA_DIR / saved_name
-    out_path.write_bytes(raw)
-
-    preview = text[:PREVIEW_CHARS] if text else ""
-    piece_texts = chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
-    chunk_entries = [
-        {"index": i, "text": piece, "char_count": len(piece)}
-        for i, piece in enumerate(piece_texts)
-    ]
-    metadata = {
-        "id": doc_id,
-        "original_filename": filename,
-        "saved_as": saved_name,
-        "page_count": page_count,
-        "char_count": len(text),
-        "chunk_count": len(chunk_entries),
-        "text_preview": preview,
-        "chunks": chunk_entries,
-    }
-    DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
-    meta_path = DOCUMENTS_DIR / f"{doc_id}.json"
-    meta_path.write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    return await process_pdf_upload(
+        file,
+        data_dir=DATA_DIR,
+        documents_dir=DOCUMENTS_DIR,
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+        upload_chunk_bytes=UPLOAD_CHUNK_BYTES,
+        preview_chars=PREVIEW_CHARS,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        extract_text=extract_text_from_pdf_stream,
+        logger=logger,
     )
 
-    return {
-        "id": doc_id,
-        "saved_as": saved_name,
-        "original_filename": filename,
-        "page_count": page_count,
-        "char_count": len(text),
-        "text_preview": preview,
-    }
 
-
-def _load_doc_metadata_path(doc_id: str) -> Path:
-    try:
-        uuid.UUID(doc_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="未找到该文档") from exc
-    return DOCUMENTS_DIR / f"{doc_id}.json"
-
-
-@app.get("/api/documents")
+@api_get("/documents")
 def list_documents():
-    if not DOCUMENTS_DIR.is_dir():
-        return []
-    summaries: list[dict] = []
-    for path in sorted(DOCUMENTS_DIR.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        data.pop("chunks", None)
-        summaries.append(data)
-    return summaries
+    return list_document_summaries(DOCUMENTS_DIR)
 
 
-@app.get("/api/documents/{doc_id}")
+@api_get("/documents/{doc_id}")
 def get_document(doc_id: str):
-    path = _load_doc_metadata_path(doc_id)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="未找到该文档")
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.exception("读取文档元数据失败")
-        raise HTTPException(
-            status_code=500,
-            detail="文档元数据已损坏，无法读取",
-        ) from exc
+    return get_document_metadata(DOCUMENTS_DIR, doc_id, logger=logger)
+
+
+@api_delete("/documents/{doc_id}")
+def delete_document(doc_id: str):
+    return delete_document_files(DOCUMENTS_DIR, DATA_DIR, doc_id, logger=logger)

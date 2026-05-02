@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from app.config import DoubaoSettings, get_doubao_settings
@@ -17,6 +19,12 @@ class LLMRequestError(RuntimeError):
 
 def _chat_completions_url(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/chat/completions"
+
+
+def _is_retryable_http_error(exc: httpx.HTTPError) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.TransportError)
 
 
 def build_doubao_messages(question: str, citations: list[dict]) -> list[dict]:
@@ -44,6 +52,8 @@ def generate_doubao_answer(
     question: str,
     citations: list[dict],
     settings: DoubaoSettings | None = None,
+    max_retries: int = 2,
+    retry_backoff_seconds: float = 0.5,
 ) -> str:
     """Call Doubao through Volcengine Ark's OpenAI-compatible chat endpoint."""
     active_settings = settings or get_doubao_settings()
@@ -60,19 +70,26 @@ def generate_doubao_answer(
         "Content-Type": "application/json",
     }
 
-    try:
-        with httpx.Client(timeout=active_settings.timeout_seconds) as client:
-            response = client.post(
-                _chat_completions_url(active_settings.base_url),
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-    except httpx.HTTPError as exc:
-        raise LLMRequestError(f"豆包 API 请求失败: {exc}") from exc
-    except ValueError as exc:
-        raise LLMRequestError("豆包 API 返回了无法解析的 JSON") from exc
+    attempts = max(0, max_retries) + 1
+    for attempt in range(attempts):
+        try:
+            with httpx.Client(timeout=active_settings.timeout_seconds) as client:
+                response = client.post(
+                    _chat_completions_url(active_settings.base_url),
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+        except httpx.HTTPError as exc:
+            if attempt < attempts - 1 and _is_retryable_http_error(exc):
+                if retry_backoff_seconds > 0:
+                    time.sleep(retry_backoff_seconds * (2**attempt))
+                continue
+            raise LLMRequestError(f"豆包 API 请求失败: {exc}") from exc
+        except ValueError as exc:
+            raise LLMRequestError("豆包 API 返回了无法解析的 JSON") from exc
 
     try:
         content = data["choices"][0]["message"]["content"]

@@ -10,7 +10,6 @@ from typing import Any
 
 import httpx
 
-
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_OUTPUT = Path("datasets/real_paper_answer_eval_cases.json")
 

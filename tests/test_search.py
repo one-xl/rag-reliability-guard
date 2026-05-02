@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.bm25 import search_documents_bm25, tokenize
+from app.document_index import get_document_index
 from app.main import app
 from app.search import search_documents
 
@@ -169,7 +170,7 @@ def test_bm25_ranking_idf_dominates_rare_term(tmp_path):
 
 
 def test_tokenize_english_and_cjk():
-    assert tokenize("Hello 世界!") == ["hello", "世", "界"]
+    assert tokenize("Hello 世界!") == ["hello", "世界"]
     assert tokenize("alpha-beta") == ["alpha", "beta"]
 
 
@@ -187,3 +188,16 @@ def test_api_search_method_bm25(client, tmp_path):
     assert r_kw.json()["results"][0]["chunk_index"] == 1
     assert r_bm.json()["results"][0]["chunk_index"] == 0
     assert isinstance(r_bm.json()["results"][0]["score"], float)
+
+
+def test_document_index_refreshes_when_metadata_changes(tmp_path):
+    doc_id = "00000000-0000-4000-8000-000000000088"
+    docs = tmp_path / "documents"
+    _write_metadata(docs, doc_id, "cache.pdf", [(0, "alpha evidence")])
+    first = get_document_index(docs)
+    assert first.text_by_key[(doc_id, 0)] == "alpha evidence"
+
+    _write_metadata(docs, doc_id, "cache.pdf", [(0, "alpha evidence plus beta")])
+    second = get_document_index(docs)
+    assert second.text_by_key[(doc_id, 0)] == "alpha evidence plus beta"
+    assert second is not first

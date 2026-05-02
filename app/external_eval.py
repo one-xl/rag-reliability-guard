@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 from app.faithfulness import check_answer_faithfulness
 
-REFUSAL_MARKERS = (
+_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
+
+_REFUSAL_PREFIXES = (
     "无法回答",
     "不能回答",
     "没有足够信息",
@@ -13,18 +17,38 @@ REFUSAL_MARKERS = (
     "暂时无法回答",
     "insufficient information",
     "not enough information",
+    "there is not enough information",
+    "there is insufficient information",
+    "i cannot answer",
+    "i can't answer",
     "cannot answer",
     "can't answer",
+    "unable to answer",
+    "i am unable to answer",
+)
+
+_KNOWLEDGE_REFUSAL_PREFIXES = (
+    "i do not know",
+    "i don't know",
     "do not know",
     "don't know",
-    "unable to answer",
 )
 
 
 def is_refusal(answer: str) -> bool:
     """Return True when the answer clearly abstains instead of answering."""
-    lowered = answer.lower()
-    return any(marker.lower() in lowered for marker in REFUSAL_MARKERS)
+    sentences = [part.strip().lower() for part in _SENTENCE_SPLIT_RE.split(answer)]
+    for sentence in sentences:
+        if not sentence:
+            continue
+        if any(sentence.startswith(marker) for marker in _REFUSAL_PREFIXES):
+            return True
+        for marker in _KNOWLEDGE_REFUSAL_PREFIXES:
+            if sentence == marker:
+                return True
+            if sentence.startswith(f"{marker} because"):
+                return True
+    return False
 
 
 def _optional_meta_str(raw: object, *, default: str = "unknown") -> str:
@@ -145,6 +169,8 @@ def evaluate_external_answer_case(
         "refusal_correct": refusal_correct,
         "over_refusal": over_refusal,
         "support_rate": faithfulness["support_rate"],
+        "unsupported_claim_rate": faithfulness["unsupported_claim_rate"],
+        "hallucination_proxy_rate": faithfulness["hallucination_proxy_rate"],
         "hallucination_rate": faithfulness["hallucination_rate"],
         "reliable": reliable,
         "faithfulness": faithfulness,

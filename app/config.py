@@ -3,27 +3,46 @@
 from __future__ import annotations
 
 import os
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
 
 def load_dotenv(path: Path = ENV_FILE) -> None:
-    """Load simple KEY=VALUE pairs without overriding existing environment values."""
+    """Load .env KEY=VALUE pairs without overriding existing environment values."""
     if not path.is_file():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
+        parsed = _parse_dotenv_line(line)
+        if parsed is None:
             continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        key, value = parsed
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[len("export ") :].lstrip()
+    key, value = stripped.split("=", 1)
+    key = key.strip()
+    if not key:
+        return None
+
+    lexer = shlex.shlex(value, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        parts = list(lexer)
+    except ValueError:
+        parts = [value.strip()]
+    return key, " ".join(parts)
 
 
 @dataclass(frozen=True)

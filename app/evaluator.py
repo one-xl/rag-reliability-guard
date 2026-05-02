@@ -6,11 +6,12 @@ import csv
 from io import StringIO
 from pathlib import Path
 
-from app.answerer import REFUSAL_ANSWER, draft_answer
+from app.answerer import draft_answer
+from app.external_eval import is_refusal
 from app.faithfulness import check_answer_faithfulness
+from app.llm_client import LLMConfigurationError, LLMRequestError
 from app.search import search_documents
 
-_REFUSAL_MARKERS = (REFUSAL_ANSWER, "没有检索到足够信息", "暂时无法回答")
 ANSWER_EVAL_CSV_FIELDS = [
     "question",
     "answerable",
@@ -20,6 +21,7 @@ ANSWER_EVAL_CSV_FIELDS = [
     "hallucination_rate",
     "hit",
     "refusal_correct",
+    "error",
 ]
 
 
@@ -51,10 +53,8 @@ def _matches_expected(result: dict, case: dict) -> bool:
 
 
 def _refusal_correct_unanswerable(answer: str, citations: list[dict]) -> bool:
-    """True when no evidence was retrieved or the answer clearly refuses."""
-    if not citations:
-        return any(marker in answer for marker in _REFUSAL_MARKERS)
-    return False
+    """True when an unanswerable case clearly refuses, even if citations exist."""
+    return is_refusal(answer)
 
 
 def evaluate_answer_cases(
@@ -66,6 +66,7 @@ def evaluate_answer_cases(
     top_k: int = 5,
     min_support_rate: float | None = None,
     min_relevance_overlap: float | None = None,
+    continue_on_error: bool = False,
 ) -> dict:
     """
     Run draft_answer per case and return reliability-oriented metrics for experiments.
@@ -85,6 +86,7 @@ def evaluate_answer_cases(
     answerable_hits = 0
     unanswerable_total = 0
     refusal_correct_count = 0
+    error_count = 0
     support_rates: list[float] = []
     hallucination_rates: list[float] = []
 
@@ -94,15 +96,42 @@ def evaluate_answer_cases(
         _validate_case(case, i)
 
         question = case["question"].strip()
-        draft = draft_answer(
-            question,
-            documents_dir,
-            top_k=top_k,
-            method=method,
-            generator=generator,
-            min_support_rate=min_support_rate,
-            min_relevance_overlap=min_relevance_overlap,
-        )
+        answerable = bool(case["answerable"])
+        try:
+            draft = draft_answer(
+                question,
+                documents_dir,
+                top_k=top_k,
+                method=method,
+                generator=generator,
+                min_support_rate=min_support_rate,
+                min_relevance_overlap=min_relevance_overlap,
+                fallback_to_extractive=not continue_on_error,
+            )
+        except (LLMConfigurationError, LLMRequestError) as exc:
+            if not continue_on_error:
+                raise
+            error_count += 1
+            if answerable:
+                answerable_total += 1
+            else:
+                unanswerable_total += 1
+            rows.append(
+                {
+                    "question": question,
+                    "answerable": answerable,
+                    "retrieved_citation_count": 0,
+                    "reliable": False if min_support_rate is not None else None,
+                    "support_rate": 0.0,
+                    "unsupported_claim_rate": 0.0,
+                    "hallucination_proxy_rate": 0.0,
+                    "hallucination_rate": 0.0,
+                    "hit": False if answerable else None,
+                    "refusal_correct": False if not answerable else None,
+                    "error": str(exc),
+                }
+            )
+            continue
         citations = draft.get("citations") or []
         if not isinstance(citations, list):
             citations = []
@@ -120,7 +149,6 @@ def evaluate_answer_cases(
         if min_support_rate is None:
             reliable = None
 
-        answerable = bool(case["answerable"])
         hit: bool | None = None
         refusal_correct: bool | None = None
 
@@ -144,9 +172,12 @@ def evaluate_answer_cases(
                 "retrieved_citation_count": n_citations,
                 "reliable": reliable,
                 "support_rate": sr,
+                "unsupported_claim_rate": faithfulness.get("unsupported_claim_rate", hr),
+                "hallucination_proxy_rate": faithfulness.get("hallucination_proxy_rate", hr),
                 "hallucination_rate": hr,
                 "hit": hit,
                 "refusal_correct": refusal_correct,
+                "error": None,
             }
         )
 
@@ -165,9 +196,11 @@ def evaluate_answer_cases(
         "top_k": top_k,
         "min_support_rate": min_support_rate,
         "min_relevance_overlap": min_relevance_overlap,
+        "continue_on_error": continue_on_error,
         "rows": rows,
         "aggregate": {
             "total": len(cases),
+            "error_count": error_count,
             "answerable_total": answerable_total,
             "answerable_hits": answerable_hits,
             "citation_hit_rate": citation_hit_rate,

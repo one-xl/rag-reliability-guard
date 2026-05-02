@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import uuid
 from pathlib import Path
+
+from app.document_index import get_document_index
 
 TEXT_PREVIEW_MAX_CHARS = 240
 
@@ -33,38 +33,11 @@ def iter_indexable_chunks(
     Returns tuples ``(document_id, original_filename, chunk_index, text)`` in
     filename order, then chunk list order, matching scan semantics used for search.
     """
-    if not documents_dir.is_dir():
-        return []
-
-    rows: list[tuple[str, str, int, str]] = []
-    for path in sorted(documents_dir.glob("*.json")):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-
-        doc_id = raw.get("id")
-        original_filename = raw.get("original_filename")
-        chunks = raw.get("chunks")
-        if not isinstance(doc_id, str) or not isinstance(original_filename, str):
-            continue
-        if not isinstance(chunks, list):
-            continue
-
-        try:
-            uuid.UUID(doc_id)
-        except ValueError:
-            continue
-
-        for ch in chunks:
-            if not isinstance(ch, dict):
-                continue
-            text = ch.get("text")
-            idx = ch.get("index")
-            if not isinstance(text, str) or not isinstance(idx, int):
-                continue
-            rows.append((doc_id, original_filename, idx, text))
-    return rows
+    index = get_document_index(documents_dir)
+    return [
+        (row.document_id, row.original_filename, row.chunk_index, row.text)
+        for row in index.rows
+    ]
 
 
 def search_documents(documents_dir: Path, query: str, top_k: int) -> list[dict]:
@@ -80,11 +53,20 @@ def search_documents(documents_dir: Path, query: str, top_k: int) -> list[dict]:
         return []
 
     matches: list[tuple[int, str, str, int, str]] = []
-    for doc_id, original_filename, idx, text in iter_indexable_chunks(documents_dir):
-        score = _chunk_score(text, tokens)
+    index = get_document_index(documents_dir)
+    for row in index.rows:
+        score = _chunk_score(row.text, tokens)
         if score <= 0:
             continue
-        matches.append((score, doc_id, original_filename, idx, text))
+        matches.append(
+            (
+                score,
+                row.document_id,
+                row.original_filename,
+                row.chunk_index,
+                row.text,
+            )
+        )
 
     matches.sort(key=lambda row: (-row[0], row[1], row[3]))
 

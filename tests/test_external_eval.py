@@ -240,8 +240,7 @@ def test_external_answers_api_success():
 def test_external_answers_api_rejects_invalid_cases():
     client = TestClient(app)
     response = client.post("/api/evaluate/external-answers", json={"cases": "bad"})
-    assert response.status_code == 400
-    assert "cases" in response.json()["detail"]
+    assert response.status_code == 422
 
 
 def test_external_eval_script_helpers(tmp_path):

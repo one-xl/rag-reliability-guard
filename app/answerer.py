@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.bm25 import search_documents_bm25
+from app.dense_retrieval import search_documents_dense, search_documents_hybrid
 from app.document_index import get_document_index
 from app.faithfulness import check_answer_faithfulness, extract_keywords
 from app.llm_client import LLMConfigurationError, LLMRequestError, generate_doubao_answer
 from app.search import search_documents
 
-VALID_METHODS = {"keyword", "bm25"}
+VALID_METHODS = {"keyword", "bm25", "dense", "hybrid"}
 VALID_GENERATORS = {"extractive", "doubao"}
 REFUSAL_ANSWER = "知识库中没有检索到足够信息，暂时无法回答该问题。"
 
@@ -21,7 +22,11 @@ def retrieve_for_method(documents_dir: Path, question: str, top_k: int, method: 
         return search_documents(documents_dir, question, top_k)
     if method == "bm25":
         return search_documents_bm25(documents_dir, question, top_k)
-    raise ValueError("method must be keyword or bm25")
+    if method == "dense":
+        return search_documents_dense(documents_dir, question, top_k)
+    if method == "hybrid":
+        return search_documents_hybrid(documents_dir, question, top_k)
+    raise ValueError("method must be keyword, bm25, dense, or hybrid")
 
 
 def evidence_relevance_overlap(

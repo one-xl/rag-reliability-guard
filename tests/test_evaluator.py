@@ -138,7 +138,7 @@ def test_evaluate_endpoint_rejects_bad_payload(client):
     assert "answerable" in r.json()["detail"]
 
     r2 = client.post("/api/evaluate/retrieval", json={"top_k": 0, "cases": []})
-    assert r2.status_code == 400
+    assert r2.status_code == 422
 
 
 def test_evaluate_answer_cases_answerable_hit(tmp_path):
@@ -355,14 +355,13 @@ def test_evaluate_answers_endpoint_success(client, tmp_path):
 
 def test_evaluate_answers_endpoint_invalid_payload(client):
     r = client.post("/api/evaluate/answers", json={"cases": "not-a-list"})
-    assert r.status_code == 400
-    assert "cases" in r.json()["detail"]
+    assert r.status_code == 422
 
     r2 = client.post(
         "/api/evaluate/answers",
         json={"cases": [], "top_k": 0, "generator": "extractive"},
     )
-    assert r2.status_code == 400
+    assert r2.status_code == 422
 
     r3 = client.post(
         "/api/evaluate/answers",
@@ -375,37 +374,37 @@ def test_evaluate_answers_endpoint_invalid_payload(client):
         "/api/evaluate/answers",
         json={"cases": [], "method": "neither"},
     )
-    assert r4.status_code == 400
+    assert r4.status_code == 422
 
     r5 = client.post(
         "/api/evaluate/answers",
         json={"cases": [], "generator": "unknown_gen"},
     )
-    assert r5.status_code == 400
+    assert r5.status_code == 422
 
     r6 = client.post(
         "/api/evaluate/answers",
         json={"cases": [], "min_support_rate": "high"},
     )
-    assert r6.status_code == 400
+    assert r6.status_code == 422
 
     r7 = client.post(
         "/api/evaluate/answers",
         json={"cases": [], "min_relevance_overlap": "high"},
     )
-    assert r7.status_code == 400
+    assert r7.status_code == 422
 
     r8 = client.post(
         "/api/evaluate/answers",
         json={"cases": [], "min_support_rate": 1.5},
     )
-    assert r8.status_code == 400
+    assert r8.status_code == 422
 
     r9 = client.post(
         "/api/evaluate/answers",
         json={"cases": [], "continue_on_error": "yes"},
     )
-    assert r9.status_code == 400
+    assert r9.status_code == 422
 
 
 def test_answer_evaluation_to_csv():
@@ -469,5 +468,4 @@ def test_evaluate_answers_export_endpoint(client, tmp_path):
 
 def test_evaluate_answers_export_rejects_invalid_payload(client):
     r = client.post("/api/evaluate/answers/export", json={"cases": "bad"})
-    assert r.status_code == 400
-    assert "cases" in r.json()["detail"]
+    assert r.status_code == 422

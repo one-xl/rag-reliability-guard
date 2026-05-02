@@ -1,13 +1,14 @@
 import logging
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.answerer import draft_answer
 from app.bm25 import search_documents_bm25
 from app.config import PROJECT_ROOT
+from app.dense_retrieval import search_documents_dense, search_documents_hybrid
 from app.evaluator import answer_evaluation_to_csv, evaluate_answer_cases, evaluate_retrieval
 from app.external_eval import evaluate_external_answer_case, evaluate_external_answer_cases
 from app.faithfulness import check_answer_faithfulness
@@ -19,6 +20,8 @@ from app.schemas import (
     AnswerRequest,
     ExternalAnswerBatchRequest,
     ExternalAnswerRequest,
+    FaithfulnessRequest,
+    RetrievalEvaluationRequest,
 )
 from app.search import search_documents
 from app.services.demo_data import load_demo_external_eval
@@ -35,7 +38,6 @@ from app.services.experiments import (
     list_answer_experiments,
     persist_answer_experiment,
 )
-from app.services.requests import parse_request
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -101,18 +103,23 @@ def dashboard():
 def api_search(
     q: str | None = Query(None),
     top_k: int = Query(5, ge=1, le=20),
-    method: str = Query("keyword", description="keyword=子串计分, bm25=Okapi BM25（分块为文档）"),
+    method: str = Query("keyword", description="keyword=子串计分, bm25=Okapi BM25, dense=向量检索, hybrid=BM25+向量混合"),
 ):
     """
-    在已入库文档分块上检索。method=keyword 为与原先一致的子串计分；method=bm25 为经典 BM25。
+    在已入库文档分块上检索。method=keyword 为与原先一致的子串计分；method=bm25 为经典 BM25；
+    method=dense 为基于 sentence-transformers 的向量检索；method=hybrid 为 BM25 + 向量混合检索。
     """
     if q is None or not q.strip():
         raise HTTPException(status_code=400, detail="查询 q 不能为空")
-    if method not in ("keyword", "bm25"):
-        raise HTTPException(status_code=400, detail="method 必须是 keyword 或 bm25")
+    if method not in ("keyword", "bm25", "dense", "hybrid"):
+        raise HTTPException(status_code=400, detail="method 必须是 keyword、bm25、dense 或 hybrid")
     stripped = q.strip()
     if method == "bm25":
         results = search_documents_bm25(DOCUMENTS_DIR, stripped, top_k)
+    elif method == "dense":
+        results = search_documents_dense(DOCUMENTS_DIR, stripped, top_k)
+    elif method == "hybrid":
+        results = search_documents_hybrid(DOCUMENTS_DIR, stripped, top_k)
     else:
         results = search_documents(DOCUMENTS_DIR, stripped, top_k)
     return {
@@ -125,28 +132,21 @@ def api_search(
 
 @api_post("/evaluate/retrieval")
 def api_evaluate_retrieval(
-    payload: dict = Body(...),
+    request: RetrievalEvaluationRequest,
     top_k: int | None = Query(None, ge=1, le=20),
 ):
     """Evaluate current retrieval results against small benchmark cases."""
-    cases = payload.get("cases")
-    if not isinstance(cases, list):
-        raise HTTPException(status_code=400, detail="cases 必须是列表")
-    body_top_k = payload.get("top_k", 5)
-    effective_top_k = top_k if top_k is not None else body_top_k
-    if not isinstance(effective_top_k, int) or not 1 <= effective_top_k <= 20:
-        raise HTTPException(status_code=400, detail="top_k 必须在 1 到 20 之间")
+    effective_top_k = top_k if top_k is not None else request.top_k
     try:
-        metrics = evaluate_retrieval(cases, DOCUMENTS_DIR, effective_top_k)
+        metrics = evaluate_retrieval(request.cases, DOCUMENTS_DIR, effective_top_k)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"top_k": effective_top_k, **metrics}
 
 
 @api_post("/evaluate/answers")
-def api_evaluate_answers(payload: dict = Body(...)):
+def api_evaluate_answers(request: AnswerEvaluationRequest):
     """Batch-run draft_answer over benchmark cases for thesis experiments."""
-    request = parse_request(AnswerEvaluationRequest, payload)
     evaluation = evaluate_answers_payload(request, DOCUMENTS_DIR, evaluate_answer_cases)
     if not request.save:
         return evaluation
@@ -155,9 +155,8 @@ def api_evaluate_answers(payload: dict = Body(...)):
 
 
 @api_post("/evaluate/answers/export")
-def api_evaluate_answers_export(payload: dict = Body(...)):
+def api_evaluate_answers_export(request: AnswerEvaluationRequest):
     """Export per-case answer evaluation rows as CSV for thesis tables."""
-    request = parse_request(AnswerEvaluationRequest, payload)
     evaluation = evaluate_answers_payload(request, DOCUMENTS_DIR, evaluate_answer_cases)
     csv_text = answer_evaluation_to_csv(evaluation)
     headers = {"Content-Disposition": 'attachment; filename="answer_evaluation.csv"'}
@@ -165,9 +164,8 @@ def api_evaluate_answers_export(payload: dict = Body(...)):
 
 
 @api_post("/evaluate/external-answer")
-def api_evaluate_external_answer(payload: dict = Body(...)):
+def api_evaluate_external_answer(request: ExternalAnswerRequest):
     """Evaluate one externally generated answer with externally supplied evidence."""
-    request = parse_request(ExternalAnswerRequest, payload)
     case = request.model_dump(exclude={"min_support_rate"}, exclude_none=True)
     try:
         return evaluate_external_answer_case(
@@ -179,9 +177,8 @@ def api_evaluate_external_answer(payload: dict = Body(...)):
 
 
 @api_post("/evaluate/external-answers")
-def api_evaluate_external_answers(payload: dict = Body(...)):
+def api_evaluate_external_answers(request: ExternalAnswerBatchRequest):
     """Batch-evaluate external answer/evidence cases for model-agnostic RAG guardrails."""
-    request = parse_request(ExternalAnswerBatchRequest, payload)
     try:
         return evaluate_external_answer_cases(
             request.cases,
@@ -209,8 +206,7 @@ def get_experiment(run_id: str):
 
 
 @api_post("/answer")
-def api_answer(payload: dict = Body(...)):
-    request = parse_request(AnswerRequest, payload)
+def api_answer(request: AnswerRequest):
     try:
         return draft_answer(
             request.question,
@@ -231,14 +227,8 @@ def api_answer(payload: dict = Body(...)):
 
 
 @api_post("/evaluate/faithfulness")
-def api_evaluate_faithfulness(payload: dict = Body(...)):
-    answer = payload.get("answer")
-    citations = payload.get("citations")
-    if not isinstance(answer, str) or not answer.strip():
-        raise HTTPException(status_code=400, detail="answer 不能为空")
-    if not isinstance(citations, list):
-        raise HTTPException(status_code=400, detail="citations 必须是列表")
-    return check_answer_faithfulness(answer, citations)
+def api_evaluate_faithfulness(request: FaithfulnessRequest):
+    return check_answer_faithfulness(request.answer, request.citations)
 
 
 @api_post("/documents/upload")

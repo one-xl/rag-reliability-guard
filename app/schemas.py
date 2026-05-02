@@ -22,7 +22,7 @@ class _ApiModel(BaseModel):
 class AnswerRequest(_ApiModel):
     question: str
     top_k: StrictInt = Field(default=5, ge=1, le=20)
-    method: Literal["keyword", "bm25"] = "keyword"
+    method: Literal["keyword", "bm25", "dense", "hybrid"] = "keyword"
     generator: Literal["extractive", "doubao"] = "extractive"
     min_support_rate: float | None = Field(default=None, ge=0.0, le=1.0)
     min_relevance_overlap: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -38,7 +38,7 @@ class AnswerRequest(_ApiModel):
 
 class AnswerEvaluationRequest(_ApiModel):
     cases: list[dict[str, Any]]
-    method: Literal["keyword", "bm25"] = "keyword"
+    method: Literal["keyword", "bm25", "dense", "hybrid"] = "keyword"
     generator: Literal["extractive", "doubao"] = "extractive"
     top_k: StrictInt = Field(default=5, ge=1, le=20)
     min_support_rate: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -69,6 +69,23 @@ class ExternalAnswerRequest(_ApiModel):
 class ExternalAnswerBatchRequest(_ApiModel):
     cases: list[dict[str, Any]]
     min_support_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class RetrievalEvaluationRequest(_ApiModel):
+    cases: list[dict[str, Any]]
+    top_k: StrictInt = Field(default=5, ge=1, le=20)
+
+
+class FaithfulnessRequest(_ApiModel):
+    answer: str
+    citations: list[dict[str, Any]]
+
+    @field_validator("answer")
+    @classmethod
+    def answer_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("answer must be a non-empty string")
+        return value
 
 
 def validation_error_detail(exc: ValidationError) -> str:

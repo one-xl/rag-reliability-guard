@@ -76,9 +76,9 @@ def test_faithfulness_endpoint():
 def test_faithfulness_endpoint_rejects_bad_payload():
     client = TestClient(app)
     r = client.post("/api/evaluate/faithfulness", json={"answer": "", "citations": []})
-    assert r.status_code == 400
+    assert r.status_code == 422
     r2 = client.post(
         "/api/evaluate/faithfulness",
         json={"answer": "x", "citations": "not-list"},
     )
-    assert r2.status_code == 400
+    assert r2.status_code == 422

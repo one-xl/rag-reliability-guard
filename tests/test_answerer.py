@@ -78,14 +78,16 @@ def test_answer_bm25_method(client, tmp_path):
 
 def test_answer_rejects_invalid_method(client):
     r = client.post("/api/answer", json={"question": "x", "method": "vector"})
-    assert r.status_code == 400
-    assert "method" in r.json()["detail"]
+    assert r.status_code == 422
+    detail = str(r.json())
+    assert "method" in detail.lower() or "literal" in detail.lower()
 
 
 def test_answer_rejects_invalid_generator(client):
     r = client.post("/api/answer", json={"question": "x", "generator": "other"})
-    assert r.status_code == 400
-    assert "generator" in r.json()["detail"]
+    assert r.status_code == 422
+    detail = str(r.json())
+    assert "generator" in detail.lower() or "literal" in detail.lower()
 
 
 def test_answer_attaches_reliability_metrics(client, tmp_path):
@@ -134,14 +136,14 @@ def test_answer_rejects_invalid_min_support_rate(client):
         "/api/answer",
         json={"question": "x", "min_support_rate": "high"},
     )
-    assert r.status_code == 400
-    assert "min_support_rate" in r.json()["detail"]
+    assert r.status_code == 422
+    assert "min_support_rate" in str(r.json()).lower()
 
     r2 = client.post(
         "/api/answer",
         json={"question": "x", "min_support_rate": 1.2},
     )
-    assert r2.status_code == 400
+    assert r2.status_code == 422
 
 
 def test_answer_rejects_invalid_min_relevance_overlap(client):
@@ -149,14 +151,14 @@ def test_answer_rejects_invalid_min_relevance_overlap(client):
         "/api/answer",
         json={"question": "x", "min_relevance_overlap": "high"},
     )
-    assert r.status_code == 400
-    assert "min_relevance_overlap" in r.json()["detail"]
+    assert r.status_code == 422
+    assert "min_relevance_overlap" in str(r.json()).lower()
 
     r2 = client.post(
         "/api/answer",
         json={"question": "x", "min_relevance_overlap": -0.1},
     )
-    assert r2.status_code == 400
+    assert r2.status_code == 422
 
 
 def test_answer_doubao_generator_uses_citations(client, tmp_path, monkeypatch):
@@ -235,5 +237,5 @@ def test_answer_doubao_strict_mode_returns_error(client, tmp_path, monkeypatch):
 
 def test_answer_rejects_empty_question(client):
     r = client.post("/api/answer", json={"question": "   "})
-    assert r.status_code == 400
-    assert "question" in r.json()["detail"]
+    assert r.status_code == 422
+    assert "question" in str(r.json()).lower()

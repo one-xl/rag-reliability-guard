@@ -91,18 +91,25 @@
 - 完成 lint 收敛：整理 import、移除未使用导入、采用 `datetime.UTC` 等 ruff 自动修复项；保留 FastAPI `Body/File` 默认值相关 B008 忽略。
 - 验证：`ruff check app scripts tests`、`mypy app scripts`、`node --check app/static/dashboard.js`、`pre_commit run --all-files`、全量 pytest `135 passed`。
 
+### 2026-05-02 第十一轮优化（已完成）
+
+- 完成 #17 延续：所有 POST 端点从 `payload: dict = Body(...)` + `parse_request()` 切换为 FastAPI 原生 Pydantic body schema；Pydantic 校验失败统一返回 422（含 location 信息），业务逻辑校验保留 400；移除 `Body` 导入和 `parse_request` 调用。
+- 完成 #23：新增 `app/dense_retrieval.py`，基于 `sentence-transformers`（`paraphrase-multilingual-MiniLM-L12-v2`）+ FAISS 实现向量检索；支持 `method=dense`（纯向量）和 `method=hybrid`（BM25 + 向量线性混合，默认 alpha=0.5）。
+- 完成 #23 延续：`answerer.py`、`schemas.py`、`main.py` 搜索端点、dashboard 前端下拉框均已接入 dense/hybrid 方法；hybrid 结果额外返回 `bm25_score` 和 `dense_score`。
+- 完成 #23 延续：新增 `requirements-dense.txt` 列出可选依赖；首次使用 dense/hybrid 时自动下载模型（国内需设置 `HF_ENDPOINT=https://hf-mirror.com`）。
+- 验证：全量 pytest `145 passed`（含 10 个新增 dense/hybrid 测试）；`python -m py_compile` 全部通过。
+
 ## 状态索引
 
-- 已完成：#1-#22、#24-#29。
-- 部分完成：#17 已集中 Pydantic 校验，但未切换到 FastAPI 原生 body schema + 422 语义。
-- 未完成：#23 Dense / Hybrid 检索。
-- 当前验证基线：全量 pytest `135 passed`。
+- 已完成：#1-#29。
+- 部分完成：无。
+- 未完成：无。
+- 当前验证基线：全量 pytest `145 passed`。
 
 ### 当前仍未完成 / 后续优化
 
-- #23：Dense / Hybrid 检索尚未实现；会引入 `sentence-transformers`、FAISS 或模型下载，建议单独确认依赖体积和离线策略后再做。
-- #28：dashboard 核心体验优化已完成；后续只剩更多可视化筛选等增强项。
-- #17 延续：Pydantic 已集中校验，但还未切到 FastAPI 原生 body schema + 422 语义；若要完整 OpenAPI schema，可另做兼容迁移。
+- #23 延续：dense/hybrid 已实现并测试通过；模型权重约 500MB，首次使用需联网下载（国内设置 `HF_ENDPOINT=https://hf-mirror.com`）；如需离线部署，可预先下载模型到 `~/.cache/huggingface/`。
+- #28：dashboard 核心体验优化已完成；后续可按展示需要追加更多筛选条件和图表。
 - #21：开发质量工具链已落地；Windows 本地运行 pre-commit 时需先把 `.venv\Scripts` 放到 PATH 前面，避免误用 Anaconda Python。
 
 ---
@@ -235,11 +242,11 @@
   - `app/schemas.py`：全部 Pydantic 模型
   - 预计能少 ~60 行重复 if 校验，每个接口可压到 < 25 行。
 
-### 17. 全部接口手写 dict 校验，未用 Pydantic
+### 17. 全部接口 Pydantic 校验 + FastAPI 原生 body schema（已完成）
 
-- 位置：`/api/answer`、`/api/evaluate/answers`、`/api/evaluate/external-answers`
-- 现状：各自写了一遍 `if not isinstance(...)`，规则还互相不一致（见 #14）。
-- 建议：改成 BaseModel + Field 校验后能减少重复，且自动生成 OpenAPI schema、自动 422 错误带 location，单元测试更短。
+- 位置：`/api/answer`、`/api/evaluate/answers`、`/api/evaluate/external-answers` 等所有 POST 端点。
+- 现状：已迁移到 FastAPI 原生 Pydantic body schema；Pydantic 校验失败统一返回 422（含 location 信息），业务逻辑校验保留 400。
+- 测试：相关测试已更新为期望 422。
 
 ### 18. `app/__init__.py` 当前 git diff 只是加了一行空行
 
@@ -277,12 +284,13 @@
 
 ## 五、检索 / 算法层面（论文价值更高）
 
-### 23. 没有向量检索
+### 23. 向量检索（已完成）
 
-- 现状：仅 `keyword` + `bm25`。
-- 影响：改写句、近义、跨语言查询时 BM25 召回明显劣化。
-- 建议：可选 `method=embedding`，用 `sentence-transformers` 的 `paraphrase-multilingual-MiniLM-L12-v2`（轻量、CPU 即可）+ FAISS 内存索引。
-- 给毕设论文直接增加一组「BM25 vs Dense vs Hybrid」对比图。
+- 现状：已实现 `method=dense`（纯向量检索）和 `method=hybrid`（BM25 + 向量混合检索）。
+- 实现：`app/dense_retrieval.py`，基于 `sentence-transformers` 的 `paraphrase-multilingual-MiniLM-L12-v2` + FAISS 内存索引。
+- 依赖：`requirements-dense.txt` 列出 `sentence-transformers` 和 `faiss-cpu`。
+- 模型：约 500MB，首次使用自动下载；国内需设置 `HF_ENDPOINT=https://hf-mirror.com`。
+- 测试：10 个新增测试覆盖 dense/hybrid 检索、API 端点、混合评分。
 
 ### 24. 文本切分按字符固定窗口
 
@@ -332,19 +340,18 @@
 
 ## 优先级建议
 
-当前高优先级已经从“修正核心指标/拆分结构”转为“补齐可选增强和工程收尾”：
+所有原始审查条目（#1-#29）均已完成。后续可按需进行：
 
-1. **#23 Dense / Hybrid 检索**：先确认依赖体积、模型下载和离线策略，再实现 `method=dense|hybrid` 对比基线。
-2. **#21 开发质量工具落地**：安装 dev 依赖并运行 ruff / mypy / pre-commit，根据结果做最小修复。
-3. **#17 FastAPI 原生 schema 迁移**：如果可以接受部分错误码从 400 迁到 422，再把请求体切到原生 Pydantic body schema。
-4. **#28 dashboard 小体验**：核心项已完成，后续可按展示需要追加更多筛选条件和图表。
-5. **收尾清理**：为可选 dense 模式补 README 说明，并清理本地 pytest 权限临时目录等环境噪声。
+1. **离线部署**：预先下载 `paraphrase-multilingual-MiniLM-L12-v2` 模型到本地缓存，避免生产环境联网。
+2. **#28 dashboard 增强**：核心项已完成，可按展示需要追加更多筛选条件和图表。
+3. **论文实验**：利用 `method=dense|hybrid` 跑一组「BM25 vs Dense vs Hybrid」对比实验，直接放进毕设实验小节。
+4. **收尾清理**：清理本地 pytest 权限临时目录等环境噪声。
 
 ---
 
 ## 未发现的"阻塞性"问题
 
-- 当前没有观察到新的逻辑阻塞点；核心路径已有测试覆盖，最新全量 pytest 基线为 `135 passed`。
+- 当前没有观察到新的逻辑阻塞点；核心路径已有测试覆盖，最新全量 pytest 基线为 `145 passed`。
 - 本地 `git status` 仍可能提示 `pytest-cache-files-*` 权限目录，这是 Windows pytest 临时目录 ACL 噪声，不属于业务代码；未在本文件中建议自动删除，避免误删用户环境文件。
 
 ---
@@ -353,4 +360,5 @@
 
 - 上述 #1 ~ #6 修复后，关键词代理指标仍是代理；要真正声明"幻觉抑制"效果，最终需要 LLM-as-judge 或人工抽样复核（README 已经提及，应在论文局限性中保留）。
 - #7 内存索引若不加 mtime 失效或上传钩子，多进程部署时会出现数据不同步；该问题在单进程 uvicorn 下不存在。
-- #23 引入 sentence-transformers 会显著增大依赖体积（~500MB 模型权重首跑下载），需在 README 标注离线/在线两种模式。
+- #23 dense 模式已实现，模型权重约 500MB（`paraphrase-multilingual-MiniLM-L12-v2`），首次使用需联网下载；国内环境需设置 `HF_ENDPOINT=https://hf-mirror.com`。
+- #17 延续已完成：Pydantic 校验失败统一返回 422，与 FastAPI 原生行为一致；前端已兼容 422 错误解析。
